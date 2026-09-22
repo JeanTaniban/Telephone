@@ -2,7 +2,7 @@
 
 **Date de gel :** 2026-09-16 11:13 CEST  
 **Statut :** état de référence courant après audits matériel + Android + display + touch + EC25, avec **gel du périmètre de la PCB écran : carte minimale dédiée uniquement à l’écran et à son adaptation**.  
-**Dernière mise à jour :** 2026-09-22 — inspection physique + bring-up initial terminés : Q6A réel `Dragon Q6A V1.21`, eMMC YMTC 64 GB, accès Qualcomm EDL/Sahara/Firehose validé, double sauvegarde QSPI usine vérifiée, firmware QSPI + Android 15 stock `20260630-b1` flashés avec succès, GPT eMMC post-flash validée et **premier boot Android réussi**. EC25 réel identifié `EC25-EUX / GA / EC25EUXGA-128-SGNS`; écran aftermarket `FMS780 JB2-1`. Le gel physique reste inchangé : **PCB minimale d’adaptation écran uniquement**.  
+**Dernière mise à jour :** 2026-09-22 — inspection physique + bring-up initial terminés : Q6A réel `Dragon Q6A V1.21`, eMMC YMTC 64 GB, accès Qualcomm EDL/Sahara/Firehose validé, double sauvegarde QSPI usine vérifiée, firmware QSPI + Android 15 stock `20260630-b1` flashés avec succès, GPT eMMC post-flash validée et **premier boot Android réussi**. EC25 réel identifié `EC25-EUX / GA / EC25EUXGA-128-SGNS`; écran aftermarket `FMS780 JB2-1`. Méthode de travail Android ajoutée : pilotage sans écran via **USB OTG + ADB + scrcpy**, et définition de deux chemins de mise à jour Android (**flash complet** et **flash rapide ciblé**) encore à valider sur images modifiées. Le gel physique reste inchangé : **PCB minimale d’adaptation écran uniquement**.  
 **Audience :** agent IA.  
 **Règle :** ce fichier prime sur les anciens documents lorsqu'il indique qu'une décision a été remplacée.
 
@@ -2858,3 +2858,155 @@ Avant toute modification kernel, DTBO, modem, tactile, écran ou Android :
 ```
 
 Cette baseline est désormais la référence de comparaison pour tous les futurs travaux Maker Phone.
+
+
+---
+
+# 30. Méthode de travail Android Q6A et pipeline de mise à jour
+
+Cette section définit la méthode de travail retenue pour le développement Android du Maker Phone. Elle ne remplace pas la procédure de recovery EDL validée en section 29.
+
+## 30.1 Travail quotidien sans HDMI / clavier / souris
+
+[CIBLE DE TRAVAIL — À VALIDER SUR LE Q6A STOCK]
+
+Le poste de développement doit pouvoir piloter le Q6A directement par le câble USB OTG, sans dépendre d'un écran HDMI, d'un clavier ni d'une souris connectés à la carte.
+
+Chemin retenu :
+
+```text
+PC de développement
+      │
+      │ USB OTG
+      ▼
+     Q6A
+      ├── ADB shell       -> terminal Android/Linux
+      ├── ADB push/pull   -> transfert de fichiers
+      ├── ADB install     -> installation rapide d'APK
+      ├── ADB logcat      -> logs Android
+      ├── ADB reboot      -> redémarrage / accès aux modes de maintenance
+      └── scrcpy          -> affichage Android + clavier + souris depuis le PC
+```
+
+Cette méthode devient la cible normale de développement et de diagnostic Android.
+
+Validation minimale à effectuer avant de la déclarer opérationnelle :
+
+```text
+adb devices
+adb shell
+adb push / pull
+adb install sur APK de test
+scrcpy avec contrôle clavier/souris
+reconnexion ADB après reboot
+```
+
+Tant que ces essais ne sont pas réalisés sur le Q6A réel, cette méthode reste marquée [À VALIDER].
+
+## 30.2 Deux chemins uniques de mise à jour Android
+
+[CIBLE — NON ENCORE VALIDÉE AVEC UNE IMAGE MAKER PHONE MODIFIÉE]
+
+Le développement Android doit utiliser uniquement deux chemins de mise à jour. Le firmware BIOS/QSPI n'appartient pas au cycle normal de mise à jour Android et ne doit pas être reflashé lors des itérations ordinaires.
+
+### Chemin A — flash complet Android
+
+Objectif : reconstruire et réinstaller une image eMMC Android complète lorsque les changements sont importants, lorsque plusieurs partitions sont modifiées, ou pour revenir à un état propre reproductible.
+
+Principe :
+
+```text
+baseline Android Radxa 20260630-b1
+        +
+modifications Maker Phone
+        ↓
+images / package eMMC reconstruits
+        ↓
+Qualcomm EDL / Sahara / Firehose
+        ↓
+edl-ng --memory=Sdcc --slot 0
+        ↓
+flash eMMC complet
+```
+
+État de validation :
+
+```text
+EDL / Sahara / Firehose                         VALIDÉ
+flash eMMC stock Radxa                         VALIDÉ
+boot Android stock après flash                 VALIDÉ
+flash complet d'une image Maker Phone modifiée À VALIDER
+pipeline de reconstruction reproductible       À CRÉER / À VALIDER
+```
+
+Règle : **ne pas reflasher la QSPI/Spinor dans ce chemin Android normal**. La QSPI conserve son rôle de firmware de boot et de recovery ; son backup usine reste la référence de restauration.
+
+### Chemin B — flash rapide ciblé
+
+Objectif : réduire fortement le temps d'itération en ne mettant à jour que les partitions réellement modifiées.
+
+Principe cible :
+
+```text
+modification source
+      ↓
+build de l'artifact concerné
+      ↓
+ADB -> bootloader / fastboot / fastbootd selon partition
+      ↓
+flash uniquement des partitions modifiées
+      ↓
+reboot
+      ↓
+validation ADB / logs / fonction modifiée
+```
+
+Partitions candidates selon le travail :
+
+```text
+kernel / ramdisk       -> boot.img et/ou vendor_boot.img selon packaging réel
+Device Tree            -> dtbo.img si nécessaire
+vendor Android / RIL   -> vendor logique dans super
+system/product         -> uniquement si une modification les exige
+AVB / vbmeta           -> uniquement selon la chaîne de vérification réellement observée
+```
+
+Pour la première intégration du **Quectel EC25-EUX GA**, la cible minimale est de déterminer si le cycle rapide peut se limiter principalement à :
+
+```text
+kernel / boot
++
+vendor (RIL Quectel, rild, VINTF, init, ueventd, SELinux)
++
+éléments AVB strictement nécessaires
+```
+
+Aucune modification DTBO n'est supposée nécessaire pour l'EC25 tant qu'une preuve contraire n'est pas obtenue.
+
+État : **NON VALIDÉ**. Avant automatisation, relever sur le Q6A réel :
+
+```text
+adb reboot bootloader
+fastboot getvar all
+slots A/B réellement exposés
+fastbootd disponible ou non
+partitions physiques/logiques flashables
+chaîne AVB exacte
+comportement de rollback en cas d'image invalide
+```
+
+## 30.3 Règle d'ingénierie pour les futurs développements Android
+
+Chaque modification Android doit indiquer explicitement :
+
+```text
+- fichiers/source modifiés
+- partitions finales affectées
+- artifacts reconstruits
+- chemin utilisé : FLASH RAPIDE ou FLASH COMPLET
+- commandes de flash réellement exécutées
+- tests après reboot
+- méthode de rollback disponible
+```
+
+Ne jamais déclarer le flash rapide comme opérationnel avant un test réel aller/retour sur le Q6A. Ne jamais modifier la QSPI pour résoudre un problème appartenant uniquement à Android sans preuve que le firmware de boot doit réellement changer.
