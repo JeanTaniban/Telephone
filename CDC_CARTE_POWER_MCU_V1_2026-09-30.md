@@ -2,7 +2,7 @@
 
 **Date :** 2026-09-30  
 **Projet :** Maker Phone / Radxa Dragon Q6A V1.21  
-**Statut :** **CDC électrique + BOM V1 FIGÉS — prêt pour schéma/PCB**  
+**Statut :** **CDC électrique + BOM V1 FIGÉS — évolutions finales intégrées, validations pré-fabrication encore requises**  
 **Priorité :** ce document supersède les choix contradictoires des anciens documents Power/MCU.
 
 > Fabrication imposée : **JLCPCB Economic PCBA**. Priorité composants : **Basic > Promotional > Extended**. Une référence Extended n'est gardée que lorsqu'une Basic/Promo correcte n'a pas été trouvée. Revalider uniquement stock/classification juste avant commande.
@@ -23,6 +23,8 @@ USB-C extérieur 5 V / USB2
 SYS ----------------------------------------------------------------+
  |                                                                  |
  +--> TPS610995 --> 3V6 --> VSYS RP2040-Tiny                        |
+ |       ^                                                          |
+ |       +-- EN <- STORAGE_SW <- SYS, pulldown EN vers GND          |
  |                                                                  |
  +--> MAIN_PWR P-MOS -----------------------------> Q6A / J19        |
  +--> ANNEXE1_PWR P-MOS --------------------------> ANNEXE1 +/-      |
@@ -46,14 +48,17 @@ Décisions générales :
 Batterie       : Li-ion/LiPo 1S ~5000 mAh, pack protégé
 Chargeur       : BQ25628ERYKR / C18221178
 USB-C          : 5 V uniquement, aucun PD V1
-MCU            : Waveshare RP2040-Tiny soudé comme module
+MCU            : Waveshare RP2040-Tiny soudé comme module, FACE BOTTOM
 Alim MCU       : TPS610995DRVR -> 3.6 V -> VSYS du module
+Storage OFF    : switch utilisateur en série sur EN du TPS610995
 Q6A            : coupure physique MAIN_PWR
 Modem          : alimenté par VBUS USB2 du Q6A ; aucun MODEM_PWR séparé
 Écran          : aucun DISPLAY_PWR sur cette carte
-Annexes        : deux sorties puissance commutées
-PCB            : 4 couches
+Annexes        : deux sorties puissance commutées ; une peut alimenter l'ampli audio
+PCB            : 4 couches, dimensions MAX 70 x 25 mm
 ```
+
+Le `STORAGE_SW` est un **hard-off de stockage** du superviseur, pas un bouton d'arrêt normal. Il doit être utilisé après shutdown propre du Q6A. Ouvrir ce switch alors que le Q6A fonctionne peut faire retomber les commandes MCU et couper `MAIN_PWR` brutalement.
 
 ---
 
@@ -233,7 +238,21 @@ Pas de common-mode choke USB2 en V1. Routage différentiel direct, court, sur pl
 
 [FIGÉ]
 
-Le **Waveshare RP2040-Tiny** est soudé directement comme module sur la carte. Son footprint sera construit à partir des dimensions/pads officiels et vérifié sur le module réel avant fabrication.
+Le **Waveshare RP2040-Tiny** est soudé directement comme module sur la **face BOTTOM** de la carte afin de libérer la face TOP pour la puissance et les connecteurs. Le module est monté sans headers, sur un footprint SMT dédié aligné avec ses castellations.
+
+Contraintes footprint/mécaniques obligatoires avant commande :
+
+```text
+- vérifier le dessin officiel Waveshare ;
+- mesurer le module réel ;
+- imprimer le footprint à l'échelle 1:1 et poser le module dessus ;
+- conserver des congés de soudure inspectables sur les castellations ;
+- aucun via/testpoint exposé sous le module susceptible de toucher ses métallisations ;
+- keepout sous le module suivant la géométrie réelle ;
+- placer de préférence le module vers une extrémité de la PCB, pas au centre.
+```
+
+Le RP2040-Tiny est soudé manuellement après PCBA. La carte principale reste assemblable en Economic PCBA sans imposer d'assemblage double face du module.
 
 ## 5.1 Affectation GPIO
 
@@ -268,11 +287,11 @@ L'écran n'utilise aucun GPIO MCU dans cette V1 : `BL_EN`, `ENP`, `ENN` restent 
 
 ---
 
-# 6. Alimentation always-on du MCU
+# 6. Alimentation du MCU + Storage OFF
 
-[FIGÉ]
+[FIGÉ — validation datasheet/mesure avant fabrication]
 
-Le MCU est alimenté depuis **SYS**, donc il reste disponible avec USB seul même sans batterie.
+Le MCU est alimenté depuis **SYS**, donc il reste disponible avec USB seul même sans batterie lorsque le switch de stockage est fermé.
 
 ```text
 SYS -> TPS610995DRVR -> 3.6 V -> VSYS RP2040-Tiny -> LDO 3.3 V module
@@ -284,9 +303,27 @@ L_MCU     : MAKK2016T2R2M / C92923
             2.2 uH, 1.5 A, Extended / Economic
 CIN       : 1 x 10 uF / C15850 Basic
 COUT      : 2 x 10 uF / C15850 Basic
-EN        : relié à VIN/SYS, always-on
 FB        : câblage variante fixe 3.6 V TI
 ```
+
+Commande EN :
+
+```text
+SYS -> pad STORAGE_SW_1
+pad STORAGE_SW_2 -> EN TPS610995
+EN -> 100 kOhm -> GND
+```
+
+Le switch utilisateur externe relie les deux pads :
+
+```text
+switch fermé : TPS610995 actif, MCU alimenté
+switch ouvert: TPS610995 désactivé, MCU hard-off de stockage
+```
+
+Avant fabrication, vérifier dans la datasheet du TPS610995 que le mode `EN=LOW` fournit bien le comportement de shutdown/isolation attendu dans cette topologie. Après fabrication, mesurer le courant résiduel réel.
+
+**Back-power à contrôler** : avec `STORAGE_SW` ouvert, aucune alimentation significative du RP2040 ne doit remonter par BQ I2C, GPIO58/59, EC25 level-shifter, CC1/CC2 ou toute autre E/S.
 
 Les inductances Basic disponibles ne fournissent pas une marge de courant comparable ; C92923 reste Extended justifiée.
 
@@ -325,7 +362,7 @@ Les rails sont OFF par défaut pendant reset/absence MCU.
 
 `MAIN_PWR` est coupé normalement seulement après shutdown propre Android ; la coupure brutale est réservée à la récupération.
 
-ANNEXE1/2 exposent uniquement `+` et `-`.
+ANNEXE1/2 exposent uniquement `+` et `-`. Une des deux branches pourra être affectée à l'alimentation de l'amplificateur audio stéréo ; le MCU pourra ainsi couper l'ampli pendant un appel et laisser uniquement l'oreillette passive/chemin Q6A actif. Le choix ANNEXE1/ANNEXE2 n'affecte pas la topologie électrique puisqu'elles sont identiques.
 
 ---
 
@@ -351,22 +388,24 @@ Le firmware privilégie LOW / Hi-Z quand la sémantique de la ligne le permet.
 
 [FIGÉ]
 
+La liaison principale modem utilise **l'USB-A 2.0 host du Q6A**, jamais le port USB-C d'alimentation du Q6A.
+
 ```text
-Q6A VBUS 5 V -> carrier VBUS
-Q6A D+       -> carrier DP
-Q6A D-       -> carrier DN
-Q6A GND      -> carrier GND
+Q6A USB-A host VBUS 5 V -> carrier VBUS
+Q6A USB-A host D+       -> carrier DP
+Q6A USB-A host D-       -> carrier DN
+Q6A GND                 -> carrier GND
 ```
 
 ```text
 MODEM_PWR séparé : supprimé
 VIN/BAT carrier   : non utilisés normalement
-micro-USB carrier : non utilisé
+micro-USB carrier : non utilisé dans l'intégration finale
 ```
 
 Le carrier est câblé directement par pads/trous. D+/D- restent courts et torsadés si passage par fils.
 
-La tenue du VBUS Q6A aux pics LTE reste un test de bring-up obligatoire.
+La tenue du VBUS Q6A aux pics LTE reste un test de bring-up obligatoire et un risque accepté si elle ne peut pas être complètement caractérisée avant fabrication.
 
 ---
 
@@ -406,6 +445,8 @@ Découplage  : 2 x 100 nF / C1525 Basic
 
 La mesure réelle `VIO/TXD/RI` du carrier avant raccordement définitif reste obligatoire ; elle ne change pas la BOM.
 
+L'UART permet au MCU d'envoyer des **commandes AT** au EC25 et de recevoir ses URC. USB et UART sont deux transports distincts : Android utilise principalement USB ; le MCU peut utiliser l'UART pour supervision/réveil.
+
 ## 10.2 PWK / RST
 
 ```text
@@ -420,10 +461,31 @@ Commande open-collector uniquement. Aucun pull-up 3.3 V ajouté côté collecteu
 
 ```text
 NET                 : NC/testpad
-PCM_IN/OUT/SYNC/CLK : pads extension audio future
+PCM_IN/OUT/SYNC/CLK : NC/testpads ; audio Minimal indépendant abandonné en V1
 SDA/SCL/AD0/AD1     : pads/testpoints domaine modem 1.8 V ; pas sur I2C MCU 3.3 V
 VIN/BAT             : secours/test uniquement
 ```
+
+## 10.4 Conséquence de la simplification audio
+
+Le MCU **ne transporte aucun échantillon audio** et aucun codec audio EC25 dédié n'est requis pour la V1. Tous les appels et toute la restitution audio passent par le Q6A/Android.
+
+Architecture système audio retenue :
+
+```text
+Q6A codec / HPH_L-R
+  +--> oreillette interne toujours raccordée, sous réserve validation électrique
+  +--> entrée ampli stéréo haute impédance
+          +--> HP gauche
+          +--> HP droit
+
+MCU -> alimentation/EN de l'ampli HP via une sortie ANNEXE
+micro interne -> entrée micro native Q6A à sélectionner/valider
+Bluetooth -> casque/écouteurs externes
+aucun jack utilisateur final
+```
+
+Mode média : oreillette + deux HP possibles. Mode appel : le MCU coupe l'ampli stéréo, l'oreillette reste active. Le fonctionnement réel de `HPH_L/R` sans détection physique d'un jack doit être validé avant fabrication si possible.
 
 ---
 
@@ -451,9 +513,11 @@ Ces connecteurs THT sont montés manuellement après PCBA par défaut. Les boît
 
 Debug/logique : footprint THT 1x10 pas 2.54 mm, montage manuel. Le modem utilise des pads/trous dédiés plutôt qu'un nouveau connecteur SMT.
 
+Ajouter deux pads traversants accessibles pour `STORAGE_SW`. Le switch mécanique lui-même est hors PCBA et relié à ces pads.
+
 ---
 
-# 12. PCB / routage
+# 12. PCB / routage / mécanique
 
 [FIGÉ]
 
@@ -468,7 +532,16 @@ L4 : signaux + GND
 
 Règles obligatoires : D+/D- différentiel sur plan continu ; ESD/TVS contre USB-C ; boucle SW/inductance/PMID très compacte ; découplages au plus près ; larges cuivres SYS/BAT/MAIN_PWR ; vias thermiques BQ ; éloigner SW de NTC/ADC/I2C/CC.
 
-Le contour mécanique est déterminé lors du placement dans le châssis ; ce n'est plus une décision électrique.
+Contrainte mécanique **stricte** :
+
+```text
+PCB <= 70 x 25 mm
+RP2040-Tiny sur face BOTTOM
+connecteurs et pads STORAGE_SW accessibles depuis le châssis/câblage
+aucune collision du RP2040 avec entretoises, batterie, coque ou composants face opposée
+```
+
+La contrainte 70 x 25 mm est une limite de fabrication/intégration et ne doit pas être dépassée lors du placement.
 
 ---
 
@@ -494,7 +567,7 @@ Le contour mécanique est déterminé lors du placement dans le châssis ; ce n'
 | 4 | Résistance | 5.1 kOhm 1% | C25905 | **Basic** |
 | 1 | Résistance NTC | 30 kOhm 1% | C22984 | **Basic** |
 | 11 | Résistance | 10 kOhm 1% | C25744 | **Basic** |
-| 8 | Résistance | 100 kOhm 1% | C25741 | **Basic** |
+| 9 | Résistance | 100 kOhm 1% | C25741 | **Basic** |
 | 2 | Résistance Q6A | 1 kOhm 1% | C11702 | **Basic** |
 
 Décompte 10 kOhm :
@@ -509,6 +582,8 @@ PWR button       1
 TOTAL           11
 ```
 
+Décompte 100 kOhm : les huit résistances précédentes + **1 pulldown EN du TPS610995** pour le Storage OFF.
+
 La BOM utilise donc massivement des références Basic pour les passifs. Les Extended restantes correspondent aux IC, inductances de puissance, MOS, USB-C et protections pour lesquels aucune Basic/Promo convaincante n'a été retenue.
 
 ---
@@ -516,11 +591,12 @@ La BOM utilise donc massivement des références Basic pour les passifs. Les Ext
 # 14. Hors BOM SMT / montage manuel
 
 ```text
-1 x Waveshare RP2040-Tiny
+1 x Waveshare RP2040-Tiny, soudé face BOTTOM
 1 x NTC 10 kOhm type 103AT-2 compatible
 1 x Molex 436500300 / C503478
 3 x Molex 436500200 / C192562
 1 x pin-header debug 1x10 P2.54 si monté
+1 x switch mécanique STORAGE_SW + 2 fils
 harness/fils EC25
 boîtiers Micro-Fit + contacts à sertir
 bouton Power NO du châssis
@@ -536,6 +612,7 @@ BAT
 SYS
 3V6_MCU
 3V3_MCU
+MCU_EN / TPS610995_EN
 GND
 BQ_SDA / BQ_SCL / BQ_INT / BQ_TS / BQ_ILIM
 MAIN_PWR_GATE / MAIN_PWR_OUT
@@ -559,27 +636,53 @@ MODEM_PWR                  -> supprimé
 DISPLAY_PWR                -> supprimé
 EC25 STATUS                -> supprimé
 EC25 logique directe 3.3 V -> remplacée par SN74AVC4T245
+codec audio Minimal EC25   -> supprimé V1 ; tout audio passe par Q6A
+jack utilisateur           -> supprimé ; Bluetooth pour audio externe
+mux audio analogique       -> supprimé dans l'architecture retenue
 CMC USB2                    -> non monté V1
 fusible BAT assemblé       -> non monté ; footprint/jumper seulement
 ```
 
 ---
 
-# 17. Ce qui reste à faire n'est plus une décision de BOM
+# 17. Gates minimales avant fabrication
+
+Le but n'est plus de valider tout le téléphone avant commande. Les fonctions logicielles pouvant encore évoluer après fabrication ne bloquent pas la PCB si elles n'imposent pas de modification électrique.
+
+**Bloquants / très prioritaires avant commande :**
 
 ```text
-[ ] vérifier mécaniquement le footprint exact du RP2040-Tiny réel
-[ ] mesurer EC25 VIO/TXD/RI avant connexion définitive
-[ ] valider GPIO59 comme wake source STR sur le BSP réel
-[ ] fixer contour et placement mécanique dans le châssis
-[ ] revalider les stocks JLC juste avant commande
+[ ] inspection Q6A J19 : R7/R24/R190/R191/FB4 et continuités attendues
+[ ] boot Q6A par J19 sur alimentation de labo ; caractérisation 4.2 / 3.8 / 3.4 / 3.0 V
+[ ] courant / puissance / température Q6A au minimum idle, charge CPU et STR
+[ ] GPIO58 demande un vrai mem_sleep=deep
+[ ] GPIO59 réveille réellement le Q6A depuis deep
+[ ] EC25 : SIM Orange détectée, PIN accepté, enregistrement réseau si possible
+[ ] EC25 : au minimum établissement appel entrant/sortant si la pile Android le permet
+[ ] EC25 : mesurer VIO/TXD/RI avant raccordement MCU définitif
+[ ] audio Q6A : vérifier HPH_L/R sans jack physique et compatibilité avec oreillette + entrée ampli haute impédance
+[ ] footprint RP2040-Tiny vérifié sur module réel + impression 1:1
+[ ] PCB <= 70 x 25 mm avec RP2040 face BOTTOM sans collision
+[ ] schéma Storage OFF revu ; TPS610995 shutdown vérifié dans datasheet
+[ ] analyse back-power MCU OFF réalisée sur toutes les interfaces
+[ ] ERC/DRC propres ; footprints, polarités, testpoints et Gerbers/PnP/BOM revus
 ```
 
-Une indisponibilité ponctuelle peut entraîner une substitution équivalente, mais ne doit pas rouvrir l'architecture.
+**Souhaitables mais non bloquants avant commande :**
+
+```text
+[ ] data mobile Android complète
+[ ] SMS Android complet
+[ ] audio d'appel duplex final
+[ ] VoLTE / IMS Orange
+[ ] caractérisation exhaustive des pics LTE sur VBUS Q6A
+```
+
+Si un de ces points non bloquants échoue après fabrication, le projet s'adapte logiciellement ou par câblage/module externe ; il ne doit pas retarder indéfiniment la commande de la PCB.
 
 ---
 
-# 18. Validation V1
+# 18. Validation après fabrication / bring-up V1
 
 ```text
 [ ] USB-C 5 V alimente SYS sans batterie
@@ -591,16 +694,19 @@ Une indisponibilité ponctuelle peut entraîner une substitution équivalente, m
 [ ] charge 0.5 / 1 / 1.5 / 2 A validée thermiquement
 [ ] NTC bloque/limite correctement hors plage
 [ ] télémétrie BQ cohérente
-[ ] RP2040 stable always-on
+[ ] RP2040 stable en fonctionnement normal
+[ ] STORAGE_SW coupe réellement le MCU ; courant résiduel mesuré
+[ ] aucun back-power problématique MCU OFF
 [ ] MAIN_PWR Q6A déterministe
 [ ] ANNEXE1/2 déterministes
 [ ] pas de back-power problématique Q6A OFF
 [ ] GPIO58/59 suspend/wake validés
 [ ] USB2 extérieur Q6A validé
-[ ] EC25 USB direct validé
+[ ] EC25 USB direct via USB-A host Q6A validé
 [ ] VBUS Q6A tient les pics LTE
 [ ] UART EC25 via SN74AVC4T245 validé
 [ ] PWK/RST/DTR/RI validés
-[ ] consommation deep-off mesurée
+[ ] alimentation ampli audio par ANNEXE validée, OFF pendant appel
+[ ] consommation deep/storage-off mesurée
 [ ] Economic PCBA conservé
 ```
