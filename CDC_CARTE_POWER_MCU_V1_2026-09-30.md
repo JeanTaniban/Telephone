@@ -2,14 +2,14 @@
 
 **Date :** 2026-09-30  
 **Projet :** Maker Phone / Radxa Dragon Q6A V1.21  
-**Statut :** **CDC électrique et BOM V1 gelés pour passage au schéma/PCB**  
-**Priorité documentaire :** ce document supersède les choix contradictoires présents dans `PROJECT_STATE_POWER_USB_C_V1_2026-09-28.md`, `PROJECT_STATE_MCU_DSI_PROTO_2026-09-30.md` et les documents antérieurs concernant la carte Power/MCU.
+**Statut :** **CDC électrique + BOM V1 FIGÉS — prêt pour schéma/PCB**  
+**Priorité :** ce document supersède les choix contradictoires des anciens documents Power/MCU.
 
-> Règle fabrication : rester en **JLCPCB Economic PCBA**. Sélection composants : Basic en priorité, Promotional si pertinent, Extended uniquement lorsqu'aucune alternative Basic/Promo convenable n'existe. Les stocks/classes JLC doivent être revalidés juste avant commande, sans rouvrir l'architecture sauf indisponibilité réelle.
+> Fabrication imposée : **JLCPCB Economic PCBA**. Priorité composants : **Basic > Promotional > Extended**. Une référence Extended n'est gardée que lorsqu'une Basic/Promo correcte n'a pas été trouvée. Revalider uniquement stock/classification juste avant commande.
 
 ---
 
-# 1. Architecture globale — FIGÉE
+# 1. Architecture figée
 
 ```text
 USB-C extérieur 5 V / USB2
@@ -37,233 +37,211 @@ RP2040-Tiny
   <-> EC25 TXD/RXD/DTR/RI/PWK/RST
   -> MAIN_PWR / ANNEXE1 / ANNEXE2
   <- bouton Power
-  <- CC1/CC2 analogiques pour lire l'annonce de courant USB-C
+  <- CC1/CC2 analogiques
 ```
 
-Décisions associées :
+Décisions générales :
 
 ```text
-Batterie                  : 1S Li-ion/LiPo ~5000 mAh, pack protégé
-Chargeur                  : BQ25628ERYKR / C18221178
-USB-C                     : 5 V uniquement, aucun PD V1
-MCU                       : module Waveshare RP2040-Tiny soudé au PCB
-Alim MCU                  : TPS610995DRVR -> VSYS du RP2040-Tiny
-Q6A                       : coupure physique MAIN_PWR
-Modem                     : alimenté par VBUS USB2 du Q6A, pas de MODEM_PWR séparé
-Écran                     : pas de DISPLAY_PWR sur cette carte
-Annexes                   : deux sorties puissance commutées indépendantes
-PCB                       : 4 couches
+Batterie       : Li-ion/LiPo 1S ~5000 mAh, pack protégé
+Chargeur       : BQ25628ERYKR / C18221178
+USB-C          : 5 V uniquement, aucun PD V1
+MCU            : Waveshare RP2040-Tiny soudé comme module
+Alim MCU       : TPS610995DRVR -> 3.6 V -> VSYS du module
+Q6A            : coupure physique MAIN_PWR
+Modem          : alimenté par VBUS USB2 du Q6A ; aucun MODEM_PWR séparé
+Écran          : aucun DISPLAY_PWR sur cette carte
+Annexes        : deux sorties puissance commutées
+PCB            : 4 couches
 ```
 
 ---
 
-# 2. Batterie — FIGÉ
+# 2. Batterie
+
+[FIGÉ]
 
 ```text
-Chimie          : Li-ion / LiPo 1S
-Capacité cible  : ~5000 mAh
-Tension         : cellule 1S, typiquement ~3,0...4,2 V selon cellule retenue
-Protection      : pack avec PCM/protection cellule obligatoire pour la V1 intégrée
-Température     : NTC 10 kOhm type Semitec 103AT-2 ou strictement compatible
-                 R25 = 10 kOhm, B ~3435 K
+Type           : Li-ion/LiPo 1S
+Capacité cible : ~5000 mAh
+Protection     : pack avec PCM/protection cellule obligatoire en V1 intégrée
+NTC            : 10 kOhm type Semitec 103AT-2 ou strictement compatible
+                 R25 = 10 kOhm ; B ~3435 K
 ```
 
-Le NTC est physiquement en contact avec la cellule et revient au connecteur batterie.
+Le NTC est en contact thermique avec la cellule et revient au connecteur batterie.
 
-La sécurité de charge est autonome : elle ne doit pas dépendre d'Android ou du firmware RP2040.
+La sécurité de charge reste autonome : aucune protection critique ne dépend du RP2040 ou d'Android.
 
-## 2.1 Fusible batterie
+## Fusible
 
-Aucun fusible série n'est assemblé par défaut sur la V1 afin d'éviter résistance série et nouvelle référence Extended. Le PCB comporte :
+Pas de fusible assemblé par défaut. Prévoir sur le PCB :
 
 ```text
-- un footprint optionnel F_BAT 1206/équivalent ;
-- un solder-jumper cuivre SJ_BAT fermé par défaut ;
-- sérigraphie indiquant de couper SJ_BAT avant montage d'un fusible futur.
+F_BAT : footprint optionnel
+SJ_BAT: solder-jumper cuivre fermé par défaut
 ```
 
-Le pack protégé reste obligatoire. Le footprint de fusible est une option de révision, pas un composant de la BOM assemblée V1.
+Si un fusible est monté plus tard, couper `SJ_BAT`. Le pack protégé reste obligatoire.
 
 ---
 
-# 3. Chargeur / power-path — FIGÉ
+# 3. Chargeur / power-path BQ25628E
+
+[FIGÉ]
 
 ```text
 U_CHG       : BQ25628ERYKR
 JLC         : C18221178
 Boîtier     : WQFN-18 2.5 x 3 mm
-Classe      : Extended, Economic PCBA
+Classe      : Extended / Economic
 Batterie    : 1S
 Charge max  : 2 A
 Power-path  : NVDC intégré
 ADC/I2C     : oui
-BATFET      : intégré
 ```
 
-La variante `E` est conservée. L'OTG boost supprimé sur cette variante n'est pas requis sur la V1.
+Le shunt externe + ampli courant est supprimé. Le MCU exploite directement `VBAT`, `VSYS`, `VBUS`, `IBUS`, `IBAT`, TS, état de charge et défauts du BQ.
 
-La mesure externe shunt + ampli précédemment envisagée est supprimée. Le MCU utilise les mesures BQ : `VBAT`, `VSYS`, `VBUS`, `IBUS`, `IBAT`, TS, état charge et défauts.
+## 3.1 ILIM matériel au boot
 
-La limite connue de la mesure IBAT pendant certains épisodes de battery supplement est acceptée pour la V1 et traitée logiciellement par recalage SOC.
-
----
-
-# 4. BQ25628E — câblage définitif
-
-## 4.1 Limite de courant d'entrée au boot
-
-La limite matérielle ILIM est conservée comme garde-fou au reset :
+[FIGÉ]
 
 ```text
 RILIM = 5.1 kOhm / C25905 Basic
-KILIM typ ~2500 A.Ohm
-IILIM typ ~2500 / 5100 = 0.49 A
+IILIM typique ~= 2500 / 5100 ~= 0.49 A
 ```
 
-Donc le téléphone démarre avec une limite d'entrée d'environ **490 mA** sans dépendre du firmware.
+Le téléphone reste donc limité à environ **490 mA** tant que le firmware n'a pas pris la main.
 
-`EN_EXTILIM` est un bit I2C, pas une broche. Sa valeur POR active ILIM. Séquence firmware obligatoire :
+`EN_EXTILIM` est un bit I2C, pas une broche. Séquence firmware obligatoire :
 
 ```text
-1. laisser EN_EXTILIM actif au boot ;
-2. déterminer le courant autorisé par la source ;
+1. conserver EN_EXTILIM actif au boot ;
+2. déterminer le courant permis par la source ;
 3. programmer IINDPM ;
-4. seulement ensuite, si utile, désactiver EN_EXTILIM.
+4. seulement ensuite, si nécessaire, désactiver EN_EXTILIM.
 ```
 
-Il est interdit au firmware de désactiver `EN_EXTILIM` avant d'avoir programmé `IINDPM`.
+## 3.2 Pins BQ
 
-## 4.2 Pins logiques
+[FIGÉ]
 
 ```text
-CE      : relié à GND -> charge matériellement autorisée ; EN_CHG I2C garde le contrôle logiciel
-SDA     : vers RP2040, pull-up 10 kOhm vers 3V3
-SCL     : vers RP2040, pull-up 10 kOhm vers 3V3
-INT     : vers RP2040, pull-up 10 kOhm vers 3V3
-PG      : testpoint uniquement, non utilisé par le MCU V1
-STAT    : NC, laissé flottant
-QON     : NC/testpoint ; pull-up interne du BQ utilisé
+CE   -> GND
+SDA  -> RP2040 + pull-up 10 kOhm vers 3V3
+SCL  -> RP2040 + pull-up 10 kOhm vers 3V3
+INT  -> RP2040 + pull-up 10 kOhm vers 3V3
+PG   -> testpoint uniquement
+STAT -> NC
+QON  -> NC/testpoint, pull-up interne conservé
 ```
 
-Le MCU reste always-on ; `QON`/ship-mode n'est pas utilisé comme commande normale de la V1.
+`CE=LOW` autorise matériellement la charge ; le MCU peut toujours agir par I2C via `EN_CHG`.
 
-## 4.3 Réseau NTC
+## 3.3 NTC / TS
 
-Le réseau TI pour NTC 10 kOhm type 103AT est conservé dans sa topologie, mais rationalisé avec des valeurs Basic :
+[FIGÉ]
+
+Topologie TI avec NTC 10 kOhm type 103AT :
 
 ```text
-NTC batterie : 10 kOhm 103AT-2 compatible, hors PCB / dans le pack
-RT1          : 5.1 kOhm / C25905 Basic
-RT2          : 30 kOhm / C22984 Basic
-TS_BIAS      : pilote le réseau conformément au schéma d'application TI
-TS           : point de mesure BQ
+RT1 = 5.1 kOhm / C25905 Basic
+RT2 = 30 kOhm  / C22984 Basic
+NTC = 10 kOhm 103AT-2 compatible, hors PCB
 ```
 
-Les valeurs Basic 5.1 kOhm / 30 kOhm sont suffisamment proches des valeurs de référence 5.23 kOhm / 30.1 kOhm pour la V1. Les seuils thermiques réels seront vérifiés au bring-up avant autorisation de charge à 2 A.
+Les valeurs Basic 5.1 kOhm / 30 kOhm remplacent 5.23 kOhm / 30.1 kOhm. L'écart est faible et sera validé thermiquement avant autorisation de charge 2 A.
 
-## 4.4 Inductance et condensateurs BQ — FIGÉS
+## 3.4 Inductance et condensateurs
+
+[FIGÉ]
 
 ```text
-L_CHG     : 1 uH XRIM252012S1R0MBCA / C22471110
-            Extended / Economic
-            4 A rated, 5.6 A saturation, DCR ~35 mOhm
+L_CHG    : XRIM252012S1R0MBCA / C22471110
+           1 uH, 4 A rated, 5.6 A Isat, ~35 mOhm
+           Extended / Economic
 
-CVBUS     : 1 x 1 uF  / C52923 Basic
-CVBUS_HF  : 1 x 100 nF / C1525 Basic
-CPMID     : 2 x 10 uF / C15850 Basic
-CPMID_HF  : 1 x 100 nF / C1525 Basic
-CSYS      : 3 x 10 uF / C15850 Basic
-CBAT      : 2 x 10 uF / C15850 Basic
-CREGN     : 1 x 4.7 uF / C1779 Basic
-CBTST     : 1 x 47 nF 50 V X7R / C1622 Basic, entre BTST et SW
+CVBUS    : 1 x 1 uF      / C52923 Basic
+CVBUS_HF : 1 x 100 nF    / C1525 Basic
+CPMID    : 2 x 10 uF     / C15850 Basic
+CPMID_HF : 1 x 100 nF    / C1525 Basic
+CSYS     : 3 x 10 uF     / C15850 Basic
+CBAT     : 2 x 10 uF     / C15850 Basic
+CREGN    : 1 x 4.7 uF    / C1779 Basic
+CBTST    : 1 x 47 nF 50V / C1622 Basic, BTST-SW
 ```
 
-Les condensateurs 10 uF supplémentaires sont volontaires pour conserver de la marge après dérating DC des MLCC et respecter les minima effectifs du BQ.
+Les condensateurs supplémentaires donnent de la marge après dérating DC des MLCC.
 
 ---
 
-# 5. USB-C extérieur — FIGÉ
+# 4. USB-C extérieur
 
-## 5.1 Connecteur
+[FIGÉ]
+
+## 4.1 Connecteur
 
 ```text
-J_USB      : HRO TYPE-C-31-M-12
-JLC        : C165948
-Type       : USB-C femelle 16 pins, USB2
-Rating     : 5 A / 20 V
-Classe     : Extended / Economic
+TYPE-C-31-M-12 / C165948
+USB-C femelle 16 pins / USB2
+5 A / 20 V
+Extended / Economic
 ```
-
-Pas de SuperSpeed. Pas de SBU. Pas de contrôleur PD.
 
 ```text
 A6+B6 -> D+
 A7+B7 -> D-
-VBUS   -> protection VBUS -> BQ VBUS
+VBUS   -> TVS -> BQ VBUS
 D+/D-  -> Q6A USB device
 ```
 
-## 5.2 CC1 / CC2
+Pas de SuperSpeed, pas de SBU, pas de PD.
+
+## 4.2 CC1 / CC2 + détection courant source
 
 ```text
-R_CC1 = 5.1 kOhm vers GND / C25905 Basic
-R_CC2 = 5.1 kOhm vers GND / C25905 Basic
+CC1 -> 5.1 kOhm vers GND / C25905 Basic
+CC2 -> 5.1 kOhm vers GND / C25905 Basic
+
+CC1 -> 10 kOhm série / C25744 -> GP26 / ADC0
+CC2 -> 10 kOhm série / C25744 -> GP27 / ADC1
 ```
 
-En plus, le RP2040 mesure les deux lignes CC afin de connaître l'orientation et l'annonce de courant de la source Type-C :
+Le RP2040 lit l'annonce Rp de la source USB-C. Si aucune annonce de courant fiable n'est reconnue, `ILIM` reste le garde-fou ~490 mA.
+
+## 4.3 Protection USB
+
+[FIGÉ]
 
 ```text
-CC1 -> 10 kOhm série / C25744 -> RP2040 ADC0
-CC2 -> 10 kOhm série / C25744 -> RP2040 ADC1
+U_ESD : SRV05-4 / C558418
+        4 canaux faible capacité
+        D+, D-, CC1, CC2
+        Extended / Economic
+
+D_VBUS: SMF5.0A / C193402
+        TVS 5 V, 200 W, SOD-123FL
+        Extended / Economic
 ```
 
-Le firmware ne relève `IINDPM` au-delà de la limite matérielle ~490 mA qu'après avoir identifié une annonce Type-C compatible. Sans information valide, il reste au courant par défaut conservateur.
-
-## 5.3 ESD / surtension
-
-```text
-U_ESD_USB : SRV05-4 / C558418
-            4 canaux, faible capacité
-            protège D+, D-, CC1, CC2
-            Extended / Economic
-
-D_VBUS    : SMF5.0A / C193402
-            TVS 5 V, SOD-123FL, 200 W
-            Extended / Economic
-```
-
-Le TVS VBUS est placé au plus près du connecteur. Le BQ conserve en parallèle ses propres protections d'entrée.
-
-**Pas de common-mode choke USB2 en V1.** Le routage D+/D- est direct, différentiel, court, au-dessus d'un plan GND continu. Cette décision économise une référence et évite d'ajouter une discontinuité inutile avant mesure EMI réelle.
+Pas de common-mode choke USB2 en V1. Routage différentiel direct, court, sur plan GND continu.
 
 ---
 
-# 6. MCU superviseur — FIGÉ
+# 5. MCU RP2040-Tiny
 
-Le MCU est le **Waveshare RP2040-Tiny sous forme de module soudé directement au PCB**.
+[FIGÉ]
 
-Le module est monté via son footprint castellated officiel/adapté mécaniquement au module réel. Il est soudé après assemblage JLC si nécessaire ; il n'impose pas de référence JLC.
+Le **Waveshare RP2040-Tiny** est soudé directement comme module sur la carte. Son footprint sera construit à partir des dimensions/pads officiels et vérifié sur le module réel avant fabrication.
 
-Fonctions MCU :
+## 5.1 Affectation GPIO
 
-```text
-- bouton Power
-- séquence ON/OFF Q6A
-- STR wake/sleep Q6A
-- MAIN_PWR / ANNEXE1 / ANNEXE2
-- BQ25628E I2C + INT
-- mesure CC1/CC2
-- EC25 UART, DTR, RI, PWK, RST
-- watchdog / récupération
-```
-
-L'écran n'utilise pas de `DISPLAY_PWR` sur cette carte. Les signaux BL_EN/ENP/ENN restent dans le domaine Q6A/interposer écran ; aucun GPIO MCU n'est consommé pour eux en V1.
-
-## 6.1 Affectation GPIO RP2040 — FIGÉE
+[FIGÉ]
 
 ```text
-GP0   -> EC25 RXD via level-shifter       (RP2040 TX)
-GP1   <- EC25 TXD via level-shifter       (RP2040 RX)
+GP0   -> EC25 RXD via level-shifter       (UART TX MCU)
+GP1   <- EC25 TXD via level-shifter       (UART RX MCU)
 GP2   -> EC25 DTR via level-shifter
 GP3   <- EC25 RI via level-shifter
 GP4   <-> BQ SDA
@@ -277,60 +255,58 @@ GP11  ->  ANNEXE1_EN
 GP12  ->  ANNEXE2_EN
 GP13  ->  EC25 PWK driver
 GP14  ->  EC25 RST driver
-GP15  ->  AUX_GPIO / debug
-GP26  <-  CC1_SENSE ADC0
-GP27  <-  CC2_SENSE ADC1
-GP28  ->  AUX_GPIO
-GP29  ->  AUX_GPIO
+GP15  ->  AUX/debug
+GP26  <-  CC1_SENSE / ADC0
+GP27  <-  CC2_SENSE / ADC1
+GP28  ->  AUX
+GP29  ->  AUX
 ```
 
-`GP8/GP9` sont câblés avec une résistance série 10 kOhm / C25744 vers le Q6A. Le firmware les utilise en LOW/Hi-Z lorsque possible afin de réduire le risque de back-power lorsque MAIN_PWR est coupé.
+Bouton Power : contact externe NO entre `GP7` et GND, pull-up 10 kOhm / C25744 vers 3V3.
 
-Le bouton Power externe est un contact NO entre `GP7` et GND avec pull-up 10 kOhm / C25744 vers 3V3. Le composant mécanique du bouton appartient au châssis, pas à la BOM SMT de cette carte.
+L'écran n'utilise aucun GPIO MCU dans cette V1 : `BL_EN`, `ENP`, `ENN` restent gérés côté Q6A/interposer écran.
 
 ---
 
-# 7. Alimentation always-on RP2040-Tiny — FIGÉE
+# 6. Alimentation always-on du MCU
 
-Le MCU est alimenté depuis **SYS**, pas directement depuis BAT : il doit rester disponible lorsque le téléphone est alimenté uniquement par USB.
+[FIGÉ]
+
+Le MCU est alimenté depuis **SYS**, donc il reste disponible avec USB seul même sans batterie.
 
 ```text
-SYS
- -> TPS610995DRVR
- -> 3.6 V
- -> VSYS RP2040-Tiny
- -> LDO 3.3 V du module
+SYS -> TPS610995DRVR -> 3.6 V -> VSYS RP2040-Tiny -> LDO 3.3 V module
 ```
 
 ```text
 U_MCU_PWR : TPS610995DRVR / C2071098
-            sortie fixe 3.6 V
 L_MCU     : MAKK2016T2R2M / C92923
             2.2 uH, 1.5 A, Extended / Economic
 CIN       : 1 x 10 uF / C15850 Basic
 COUT      : 2 x 10 uF / C15850 Basic
-EN        : relié au VIN/SYS -> always-on
-FB        : câblé selon variante fixe 3.6 V TI
+EN        : relié à VIN/SYS, always-on
+FB        : câblage variante fixe 3.6 V TI
 ```
 
-Aucune inductance Basic/Promo identifiée n'offre une marge de courant comparable dans ce format ; C92923 est donc conservée comme Extended justifiée.
+Les inductances Basic disponibles ne fournissent pas une marge de courant comparable ; C92923 reste Extended justifiée.
 
 ---
 
-# 8. MAIN_PWR et sorties ANNEXE — FIGÉS
+# 7. MAIN_PWR / ANNEXE1 / ANNEXE2
 
-Les trois rails utilisent le même étage pour réduire les références :
+[FIGÉ]
+
+Même étage sur les trois branches :
 
 ```text
-Q_MAIN / Q_A1 / Q_A2 : JMTQ55P02A / C2890429
-                        P-MOS 20 V
-                        RDS(on) ~12 mOhm @ |VGS|=2.5 V
-                        Extended / Economic
+P-MOS : JMTQ55P02A / C2890429
+        20 V, ~12 mOhm @ |VGS|=2.5 V
+        Extended / Economic
 
-QDRV_MAIN/A1/A2      : S8050 / C2146 Basic
-R_BASE               : 10 kOhm / C25744 Basic
-R_BE                  : 100 kOhm / C25741 Basic
-R_GS                  : 100 kOhm / C25741 Basic
+Driver: S8050 / C2146 Basic
+R_BASE: 10 kOhm  / C25744 Basic
+R_BE  : 100 kOhm / C25741 Basic
+R_GS  : 100 kOhm / C25741 Basic
 ```
 
 Topologie :
@@ -341,21 +317,23 @@ P-MOS drain -> charge
 P-MOS gate -> 100 kOhm -> source
 P-MOS gate -> collecteur S8050
 S8050 émetteur -> GND
-GPIO MCU -> 10 kOhm -> base S8050
-base S8050 -> 100 kOhm -> GND
+GPIO MCU -> 10 kOhm -> base
+base -> 100 kOhm -> GND
 ```
 
-Ainsi les rails sont **OFF par défaut** si le MCU est en reset ou absent.
+Les rails sont OFF par défaut pendant reset/absence MCU.
 
-`MAIN_PWR` ne remplace pas un shutdown Android propre. Il sert au power-on depuis OFF et à la coupure physique après arrêt propre, avec coupure forcée seulement en récupération.
+`MAIN_PWR` est coupé normalement seulement après shutdown propre Android ; la coupure brutale est réservée à la récupération.
 
-ANNEXE1 et ANNEXE2 n'exposent que `+` et `-`.
+ANNEXE1/2 exposent uniquement `+` et `-`.
 
 ---
 
-# 9. Q6A <-> MCU — FIGÉ
+# 8. Q6A <-> MCU
 
-Le header GPIO Q6A utilisé ici est en logique 3.3 V ; le RP2040-Tiny est en 3.3 V.
+[FIGÉ]
+
+Le header Q6A et le RP2040 sont en logique 3.3 V : aucun level-shifter.
 
 ```text
 Q6A pin 34 : GND
@@ -363,15 +341,15 @@ Q6A pin 36 : GPIO59 = MCU_WAKE
 Q6A pin 37 : GPIO58 = MCU_SLEEP_REQ
 ```
 
-Aucun level-shifter n'est ajouté. Chaque ligne reçoit une résistance série 10 kOhm Basic pour limiter les courants de back-power accidentels pendant le deep-off.
+Chaque ligne GPIO reçoit une résistance série **1 kOhm / C11702 Basic**. Cela limite un éventuel courant de back-power sans créer le diviseur potentiellement gênant qu'aurait une résistance série 10 kOhm face à un pull-up interne.
 
-La validation STR réelle de GPIO59 reste un test de bring-up, pas un choix de BOM.
+Le firmware privilégie LOW / Hi-Z quand la sémantique de la ligne le permet.
 
 ---
 
-# 10. Modem EC25 — USB Q6A — FIGÉ
+# 9. EC25 — USB Q6A
 
-Le carrier EC25 est alimenté et relié en données par l'USB2 host du Q6A :
+[FIGÉ]
 
 ```text
 Q6A VBUS 5 V -> carrier VBUS
@@ -382,21 +360,23 @@ Q6A GND      -> carrier GND
 
 ```text
 MODEM_PWR séparé : supprimé
-VIN/BAT carrier   : non utilisés en fonctionnement normal
+VIN/BAT carrier   : non utilisés normalement
 micro-USB carrier : non utilisé
 ```
 
-Le raccordement est réalisé par pads/trous de câblage direct, avec paire D+/D- courte et torsadée si elle passe par fils. Aucun connecteur SMT supplémentaire n'est ajouté à cette liaison.
+Le carrier est câblé directement par pads/trous. D+/D- restent courts et torsadés si passage par fils.
 
-La tenue du VBUS Q6A pendant les pics LTE réels reste un test obligatoire avec SIM/data/appel.
+La tenue du VBUS Q6A aux pics LTE reste un test de bring-up obligatoire.
 
 ---
 
-# 11. Modem EC25 <-> MCU — FIGÉ
+# 10. EC25 <-> MCU
 
-**Il n'y a PAS de signal STATUS dans la V1.** Le carrier réel utilisé n'expose pas STATUS ; il est supprimé du CDC, du schéma, des testpoints et des critères de validation. `NET` n'est pas considéré comme équivalent à STATUS.
+[FIGÉ]
 
-Signaux MCU-modem retenus :
+**Aucun signal STATUS.** Le carrier réel n'expose pas STATUS. `NET` n'est pas assimilé à STATUS.
+
+Signaux utilisés :
 
 ```text
 TXD
@@ -409,119 +389,90 @@ VIO
 GND
 ```
 
-## 11.1 Translation 1.8 V / 3.3 V
+## 10.1 TXD / RXD / DTR / RI
 
 ```text
-U_LS : SN74AVC4T245DR / C22495
-       SOIC-16
-       Extended
-
+SN74AVC4T245DR / C22495
+4 canaux, deux groupes de directions fixes
 VCCA = VIO EC25 (~1.8 V attendu)
 VCCB = 3V3 RP2040
 
-A -> B : EC25 TXD, EC25 RI
-B -> A : RP2040 TX -> EC25 RXD, RP2040 DTR -> EC25 DTR
-OE     : activé en permanence
-DIR    : fixé matériellement par groupe, aucune commande firmware
-
-Découplage : 2 x 100 nF / C1525 Basic
+EC25 -> MCU : TXD, RI
+MCU -> EC25 : RXD, DTR
+OE          : activé en permanence
+DIR         : fixé matériellement, pas de GPIO MCU
+Découplage  : 2 x 100 nF / C1525 Basic
 ```
 
-La mesure physique de `VIO`, `TXD` idle et `RI` idle sur le carrier reste obligatoire avant première mise sous tension du lien ; elle valide le domaine ~1.8 V attendu sans modifier la BOM.
+La mesure réelle `VIO/TXD/RI` du carrier avant raccordement définitif reste obligatoire ; elle ne change pas la BOM.
 
-## 11.2 PWK / RST
-
-PWK et RST sont commandés en open-collector :
+## 10.2 PWK / RST
 
 ```text
 2 x S8050 / C2146 Basic
-2 x R_BASE 10 kOhm / C25744 Basic
-2 x R_BE   100 kOhm / C25741 Basic
+2 x 10 kOhm / C25744 sur bases
+2 x 100 kOhm / C25741 base->GND
 ```
 
-Aucun pull-up 3.3 V n'est ajouté côté collecteur ; le transistor ne fait que tirer la ligne modem à GND.
+Commande open-collector uniquement. Aucun pull-up 3.3 V ajouté côté collecteur.
 
-## 11.3 Autres pins carrier
+## 10.3 Pins carrier non utilisées par le MCU
 
 ```text
-NET                 : NC/testpad, pas vers MCU
-PCM_IN/OUT/SYNC/CLK : pads d'extension audio futurs, non connectés au MCU V1
-SDA/SCL/AD0/AD1     : pads/testpoints 1.8 V seulement ; pas sur le bus I2C 3.3 V MCU
-VIN/BAT              : pads de secours/test uniquement, DNP en fonctionnement normal
+NET                 : NC/testpad
+PCM_IN/OUT/SYNC/CLK : pads extension audio future
+SDA/SCL/AD0/AD1     : pads/testpoints domaine modem 1.8 V ; pas sur I2C MCU 3.3 V
+VIN/BAT             : secours/test uniquement
 ```
 
 ---
 
-# 12. Connectique — FIGÉE
+# 11. Connecteurs
 
-Pour les chemins de puissance, la famille **Molex Micro-Fit 3.0** est retenue ; robuste et suffisamment dimensionnée.
+[FIGÉ]
 
-```text
-J_BAT : Molex 436500300 / C503478
-        1x3, Micro-Fit 3.0, THT angle droit
-        pins : BAT+ / GND / NTC
-
-J_Q6A : Molex 436500200 / C192562
-        1x2, Micro-Fit 3.0
-        pins : MAIN_PWR+ / GND
-
-J_A1  : Molex 436500200 / C192562
-        pins : ANNEXE1+ / GND
-
-J_A2  : Molex 436500200 / C192562
-        pins : ANNEXE2+ / GND
-```
-
-Ces connecteurs sont THT/wave et peuvent être **montés manuellement après PCBA** pour éviter tout surcoût d'assemblage. Les boîtiers de câble et contacts à sertir sont hors BOM PCBA.
-
-Connectique logique/debug : footprint pin-header THT 1x10 pas 2.54 mm, monté manuellement :
+Puissance : Molex Micro-Fit 3.0.
 
 ```text
-GND
-3V3
-BQ_SDA
-BQ_SCL
-AUX_GP15
-AUX_GP28
-AUX_GP29
-RUN/RESET si accessible
-SWD/debug selon pads officiels RP2040-Tiny
-GND
+J_BAT : 436500300 / C503478
+        1x3 : BAT+ / GND / NTC
+
+J_Q6A : 436500200 / C192562
+        1x2 : MAIN_PWR+ / GND
+
+J_A1  : 436500200 / C192562
+        1x2 : ANNEXE1+ / GND
+
+J_A2  : 436500200 / C192562
+        1x2 : ANNEXE2+ / GND
 ```
 
-Le modem utilise des pads/trous de câblage dédiés plutôt qu'une nouvelle famille de connecteur SMT.
+Ces connecteurs THT sont montés manuellement après PCBA par défaut. Les boîtiers et cosses de câble sont hors BOM PCBA.
+
+Debug/logique : footprint THT 1x10 pas 2.54 mm, montage manuel. Le modem utilise des pads/trous dédiés plutôt qu'un nouveau connecteur SMT.
 
 ---
 
-# 13. PCB / routage — FIGÉ
+# 12. PCB / routage
+
+[FIGÉ]
 
 PCB **4 couches** :
 
 ```text
-L1 : composants + signaux critiques/USB2
-L2 : plan GND continu
-L3 : distribution puissance + signaux lents
-L4 : signaux + cuivre GND
+L1 : composants + USB2/signaux critiques
+L2 : GND continu
+L3 : puissance + signaux lents
+L4 : signaux + GND
 ```
 
-Règles :
+Règles obligatoires : D+/D- différentiel sur plan continu ; ESD/TVS contre USB-C ; boucle SW/inductance/PMID très compacte ; découplages au plus près ; larges cuivres SYS/BAT/MAIN_PWR ; vias thermiques BQ ; éloigner SW de NTC/ADC/I2C/CC.
 
-```text
-- D+/D- USB2 en paire différentielle contrôlée, courte, sans coupure de plan sous la paire ;
-- SRV05-4 et TVS au plus près du connecteur USB-C ;
-- boucle BQ SW/inductance/PMID extrêmement compacte ;
-- condensateurs BQ collés aux pins correspondantes ;
-- larges polygones pour SYS, BAT, MAIN_PWR ;
-- vias thermiques sous BQ25628E et composants power selon recommandations fabricant ;
-- séparer le nœud SW des lignes ADC/I2C/CC/NTC ;
-- testpoints accessibles au bring-up.
-```
-
-Le contour mécanique exact du PCB dépend du châssis et reste une donnée CAO, pas un choix électrique/BOM.
+Le contour mécanique est déterminé lors du placement dans le châssis ; ce n'est plus une décision électrique.
 
 ---
 
-# 14. BOM SMT gelée — une carte
+# 13. BOM SMT gelée — 1 carte
 
 | Qté | Fonction | Référence / valeur | JLC/LCSC | Classe |
 |---:|---|---|---|---|
@@ -533,7 +484,7 @@ Le contour mécanique exact du PCB dépend du châssis et reste une donnée CAO,
 | 3 | P-MOS puissance | JMTQ55P02A | C2890429 | Extended / Economic |
 | 5 | NPN drivers | S8050 J3Y | C2146 | **Basic** |
 | 1 | USB-C | TYPE-C-31-M-12 | C165948 | Extended / Economic |
-| 1 | ESD USB/CC 4 canaux | SRV05-4 | C558418 | Extended / Economic |
+| 1 | ESD USB/CC 4 voies | SRV05-4 | C558418 | Extended / Economic |
 | 1 | TVS VBUS | SMF5.0A | C193402 | Extended / Economic |
 | 10 | MLCC | 10 uF / 25 V X5R 0805 | C15850 | **Basic** |
 | 1 | MLCC | 1 uF | C52923 | **Basic** |
@@ -542,46 +493,42 @@ Le contour mécanique exact du PCB dépend du châssis et reste une donnée CAO,
 | 1 | MLCC bootstrap | 47 nF / 50 V X7R | C1622 | **Basic** |
 | 4 | Résistance | 5.1 kOhm 1% | C25905 | **Basic** |
 | 1 | Résistance NTC | 30 kOhm 1% | C22984 | **Basic** |
-| 14 | Résistance | 10 kOhm 1% | C25744 | **Basic** |
+| 11 | Résistance | 10 kOhm 1% | C25744 | **Basic** |
 | 8 | Résistance | 100 kOhm 1% | C25741 | **Basic** |
+| 2 | Résistance Q6A | 1 kOhm 1% | C11702 | **Basic** |
 
-Notes quantités résistances 10 kOhm :
+Décompte 10 kOhm :
 
 ```text
-BQ SDA/SCL pull-up : 2
-BQ INT pull-up     : 1
-CC1/CC2 ADC série : 2
-Q6A GPIO58/59 série:2
-PWR_BUTTON pull-up : 1
-5 bases S8050      : 5
-----------------------
-Total              : 13
+BQ SDA/SCL       2
+BQ INT           1
+CC1/CC2 sense    2
+PWR button       1
+5 bases S8050    5
+------------------
+TOTAL           11
 ```
 
-**Réserver 14 positions BOM** : la quatorzième 10 kOhm est prévue comme spare configurable/test strap sur la V1. Elle peut être DNP si le schéma final ne l'utilise pas. Si JLC facture au placement et non à la référence, la laisser DNP ; la référence reste déjà présente dans la BOM.
-
-> Remarque : la rationalisation privilégie les références Basic répétées. Les Extended conservées sont les fonctions pour lesquelles une alternative Basic/Promo adaptée n'a pas été trouvée sans dégrader courant, robustesse ou compatibilité électrique.
+La BOM utilise donc massivement des références Basic pour les passifs. Les Extended restantes correspondent aux IC, inductances de puissance, MOS, USB-C et protections pour lesquels aucune Basic/Promo convaincante n'a été retenue.
 
 ---
 
-# 15. Composants hors BOM SMT / montage manuel
+# 14. Hors BOM SMT / montage manuel
 
 ```text
 1 x Waveshare RP2040-Tiny
-1 x NTC 10 kOhm type 103AT-2 compatible sur batterie
-1 x Molex 436500300 / C503478, batterie 3P
-3 x Molex 436500200 / C192562, Q6A + Annexes 2P
-1 x pin-header debug 1x10 2.54 mm, si souhaité
-fils/harness EC25 USB + contrôle
-boîtiers Micro-Fit et contacts à sertir côté câbles
-bouton Power mécanique externe NO
+1 x NTC 10 kOhm type 103AT-2 compatible
+1 x Molex 436500300 / C503478
+3 x Molex 436500200 / C192562
+1 x pin-header debug 1x10 P2.54 si monté
+harness/fils EC25
+boîtiers Micro-Fit + contacts à sertir
+bouton Power NO du châssis
 ```
-
-Les connecteurs Molex peuvent aussi être assemblés en wave solder Economic, mais le choix V1 par défaut est montage manuel après PCBA.
 
 ---
 
-# 16. Testpoints obligatoires
+# 15. Testpoints obligatoires
 
 ```text
 VBUS_USB_C
@@ -590,84 +537,70 @@ SYS
 3V6_MCU
 3V3_MCU
 GND
-BQ_SDA
-BQ_SCL
-BQ_INT
-BQ_TS
-BQ_ILIM
-MAIN_PWR_GATE
-MAIN_PWR_OUT
-ANNEXE1_OUT
-ANNEXE2_OUT
-CC1
-CC2
-EC25_VIO
-EC25_TXD
-EC25_RI
-EC25_PWK
-EC25_RST
-Q6A_GPIO58
-Q6A_GPIO59
+BQ_SDA / BQ_SCL / BQ_INT / BQ_TS / BQ_ILIM
+MAIN_PWR_GATE / MAIN_PWR_OUT
+ANNEXE1_OUT / ANNEXE2_OUT
+CC1 / CC2
+EC25_VIO / TXD / RI / PWK / RST
+Q6A_GPIO58 / Q6A_GPIO59
 ```
 
-**Aucun testpoint STATUS EC25.**
+Il n'existe aucun testpoint `EC25_STATUS`.
 
 ---
 
-# 17. Décisions supprimées / explicitement non retenues
+# 16. Choix explicitement supprimés
 
 ```text
-BQ25892                    -> supprimé, BQ25628E retenu
+BQ25892                    -> remplacé par BQ25628E
 shunt + ampli courant      -> supprimés
-USB-C PD / 9 V             -> supprimé en V1
-MODEM_PWR séparé           -> supprimé
+USB-C PD / 9 V             -> supprimé V1
+MODEM_PWR                  -> supprimé
 DISPLAY_PWR                -> supprimé
-EC25 STATUS                -> supprimé, non exposé par le carrier réel
-EC25 logique directe 3.3 V -> supprimée ; level-shifter 1.8/3.3 V
+EC25 STATUS                -> supprimé
+EC25 logique directe 3.3 V -> remplacée par SN74AVC4T245
 CMC USB2                    -> non monté V1
-fusible BAT assemblé       -> non monté ; footprint/jumper optionnel seulement
+fusible BAT assemblé       -> non monté ; footprint/jumper seulement
 ```
 
 ---
 
-# 18. Ce qui reste à faire n'est plus une décision de BOM
-
-Le schéma peut maintenant être dessiné sans nouveau choix de composant majeur. Restent uniquement des validations physiques/CAO :
+# 17. Ce qui reste à faire n'est plus une décision de BOM
 
 ```text
-[ ] relever les dimensions exactes/footprint du RP2040-Tiny réel
+[ ] vérifier mécaniquement le footprint exact du RP2040-Tiny réel
 [ ] mesurer EC25 VIO/TXD/RI avant connexion définitive
 [ ] valider GPIO59 comme wake source STR sur le BSP réel
-[ ] fixer le contour et les positions mécaniques du PCB dans le châssis
-[ ] vérifier les stocks JLC juste avant commande
+[ ] fixer contour et placement mécanique dans le châssis
+[ ] revalider les stocks JLC juste avant commande
 ```
 
-Une indisponibilité ponctuelle JLC peut justifier une substitution équivalente, mais ne doit pas rouvrir l'architecture.
+Une indisponibilité ponctuelle peut entraîner une substitution équivalente, mais ne doit pas rouvrir l'architecture.
 
 ---
 
-# 19. Critères de validation V1
+# 18. Validation V1
 
 ```text
 [ ] USB-C 5 V alimente SYS sans batterie
 [ ] batterie seule alimente SYS
 [ ] plug/unplug USB sans reboot involontaire
-[ ] ILIM matériel mesuré ~0.5 A au boot
-[ ] lecture CC1/CC2 distingue correctement les annonces Type-C
-[ ] firmware programme IINDPM avant toute désactivation de EN_EXTILIM
+[ ] ILIM matériel ~0.5 A au boot
+[ ] lecture CC1/CC2 correcte
+[ ] IINDPM programmé avant désactivation éventuelle de EN_EXTILIM
 [ ] charge 0.5 / 1 / 1.5 / 2 A validée thermiquement
-[ ] NTC bloque/limite correctement hors plage de température
-[ ] télémétrie BQ cohérente via I2C
-[ ] RP2040-Tiny reste stable sur le domaine always-on
-[ ] MAIN_PWR démarre/coupe le Q6A de manière déterministe
-[ ] ANNEXE1/ANNEXE2 commutent correctement
-[ ] aucun back-power problématique vers Q6A quand MAIN_PWR=OFF
-[ ] Q6A GPIO58/59 suspend/wake validés
-[ ] USB2 extérieur Q6A fonctionne avec ESD monté
-[ ] EC25 USB fonctionne via VBUS/DP/DN/GND directs
-[ ] EC25 VBUS Q6A tient les pics LTE réels
-[ ] UART EC25 fonctionne via SN74AVC4T245
+[ ] NTC bloque/limite correctement hors plage
+[ ] télémétrie BQ cohérente
+[ ] RP2040 stable always-on
+[ ] MAIN_PWR Q6A déterministe
+[ ] ANNEXE1/2 déterministes
+[ ] pas de back-power problématique Q6A OFF
+[ ] GPIO58/59 suspend/wake validés
+[ ] USB2 extérieur Q6A validé
+[ ] EC25 USB direct validé
+[ ] VBUS Q6A tient les pics LTE
+[ ] UART EC25 via SN74AVC4T245 validé
 [ ] PWK/RST/DTR/RI validés
 [ ] consommation deep-off mesurée
-[ ] aucune référence n'oblige à quitter Economic PCBA
+[ ] Economic PCBA conservé
 ```
