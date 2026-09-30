@@ -2,7 +2,9 @@
 
 **Date :** 2026-09-30  
 **Projet :** Maker Phone / Radxa Dragon Q6A V1.21  
-**Document d'état associé :** `PROJECT_STATE_MCU_DSI_PROTO_2026-09-30.md`
+**Document d'état associé :** `PROJECT_STATE_MCU_DSI_PROTO_2026-09-30.md`  
+**CDC Power/MCU courant :** `CDC_CARTE_POWER_MCU_V1_2026-09-30.md`  
+**État projet courant :** `PROJECT_STATE_MAKER_PHONE_Q6A_2026-09-30_CURRENT.md`
 
 ---
 
@@ -46,12 +48,14 @@ entrée matérielle PWR via 4N35/MOSFET
 fuel gauge
 chargeur
 boutons définitifs du téléphone
-MCU final low-power
-audio minimal
+Storage OFF TPS610995
+architecture audio finale
 pilotage RI/DTR/UART EC25
 ```
 
 Le modem reste branché en USB au Q6A selon l'état courant, mais son intégration fonctionnelle n'est pas modifiée par cette mission.
+
+La notion d'« audio Minimal autonome Q6A OFF » est obsolète pour la V1 : l'état courant prévoit que les appels/audio passent par le Q6A. Cette mission suspend/wake n'a donc aucun codec/audio EC25 à valider.
 
 ---
 
@@ -98,7 +102,7 @@ logs horodatés des actions
 état GPIO sûr au boot
 ```
 
-Test avant connexion Q6A : mesurer au multimètre/logic analyzer les niveaux et impulsions.
+Test avant connexion Q6A : mesurer au multimètre et/ou à l'oscilloscope les niveaux et impulsions.
 
 Critère : aucune sortie ne pulse involontairement pendant reset/boot du Pico.
 
@@ -207,7 +211,23 @@ Ne pas modifier plusieurs couches simultanément avant d'avoir isolé la cause.
 
 ---
 
-# 9. Livrables attendus à la fin
+# 9. Relation avec la carte Power finale
+
+La mission GPIO-only est un prototype de validation. La carte finale est définie par `CDC_CARTE_POWER_MCU_V1_2026-09-30.md` et ajoute notamment :
+
+```text
+MAIN_PWR physique Q6A
+ANNEXE1/ANNEXE2
+BQ25628E
+TPS610995 + STORAGE_SW
+EC25 UART/RI/DTR/PWK/RST
+```
+
+La réussite de GPIO58/GPIO59 est un **gate pré-fabrication prioritaire**, car ces deux lignes sont reprises telles quelles dans la PCB finale.
+
+---
+
+# 10. Livrables attendus à la fin
 
 ```text
 firmware MicroPython du RP2040-Tiny
