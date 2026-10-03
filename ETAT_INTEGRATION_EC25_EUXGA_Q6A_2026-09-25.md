@@ -1,3 +1,26 @@
+# NOTE 2026-10-03 — baseline logiciel conservée, hardware partiellement supersédé
+
+> Les preuves Android/RIL/AT/SIM de ce document restent la baseline modem.  
+> Pour le **hardware final EC25**, utiliser `ETAT_INTEGRATION_EC25_EUXGA_Q6A_2026-10-03_POWER_UPDATE.md` et `CDC_CARTE_POWER_MCU_V1_2026-10-03_CURRENT.md`.
+
+Les points suivants de ce document sont historiques et ne doivent plus être recopiés dans le schéma V0.5 :
+
+```text
+- alimentation principale EC25 par VBUS USB Q6A ;
+- absence de MODEM_PWR ;
+- EC25 RESET_N consommant une GPIO MCU dédiée.
+```
+
+Architecture hardware courante :
+
+```text
+SYS -> MODEM_PWR -> carrier EC25 BAT
+Q6A USB2 host -> carrier VBUS/DP/DN/GND
+RESET_N -> option open-drain DNP depuis GP28 réserve
+```
+
+---
+
 # EC25-EUXGA sur Q6A — état vérifié le 25 septembre 2026, architecture mise à jour le 30 septembre 2026
 
 ## Conclusion
@@ -6,7 +29,7 @@ Le modem **GA** communique avec Android 15 jusqu'au constat de **SIM absente**. 
 
 L'installation est encore un **prototype de développement volontairement manuel**. Les changements de fichiers vivent dans des overlays `vendor`, `system_ext` et `product` ; le pont USB AT et le RIL sont lancés manuellement dans `/data/local/tmp` sous ADB root. Cette méthode est conservée pour avancer rapidement tant que le fonctionnement modem n'est pas suffisamment validé. Une fois validé, les changements devront être intégrés proprement aux images Android puis flashés de manière ciblée et reproductible.
 
-Le lien matériel final Q6A ↔ EC25 est **USB 2.0 host depuis l'USB-A du Q6A** : `VBUS / D+ / D- / GND -> carrier EC25`. Le port USB-C d'alimentation du Q6A n'est pas le chemin modem.
+Le lien matériel final Q6A ↔ EC25 est **USB 2.0 host depuis l'USB-A du Q6A** : `VBUS / D+ / D- / GND -> carrier EC25`. Le port USB-C d'alimentation du Q6A n'est pas le chemin modem. Pour l'alimentation principale finale du modem, voir la note 2026-10-03 ci-dessus.
 
 ## Ce qui est prouvé, et sa limite
 
@@ -108,9 +131,9 @@ EC25 enregistré / événement entrant
 
 Le mode Minimal peut rester utile pour afficher des informations simples et superviser le modem, mais il n'essaie plus de reproduire un téléphone autonome complet avec Q6A éteint.
 
-## Interface MCU ↔ EC25 conservée
+## Interface MCU ↔ EC25 conservée — historique 30/09
 
-La simplification audio ne change pas :
+La simplification audio ne changeait alors pas :
 
 ```text
 MCU UART TX/RX <-> EC25 RXD/TXD via SN74AVC4T245
@@ -118,6 +141,8 @@ MCU DTR        -> EC25 DTR via SN74AVC4T245
 EC25 RI        -> MCU RI via SN74AVC4T245
 MCU PWK/RST    -> open-collector S8050
 ```
+
+Pour la V0.5 courante, `PWK` reste commandé ; `RST` est devenu une option DNP sur GP28 réserve, car `MODEM_PWR` fournit le dernier niveau de recovery.
 
 L'UART permet l'envoi de commandes **AT** et la réception d'URC. Le niveau réel `VIO`, `TXD` et `RI` doit être mesuré sur le carrier avant connexion définitive.
 
