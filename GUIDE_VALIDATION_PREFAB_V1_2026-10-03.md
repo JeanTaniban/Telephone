@@ -1,7 +1,8 @@
 # GUIDE — Validation pré-fabrication carte Power/MCU V1 — 2026-10-03
 
 **Référence électrique :** `CDC_CARTE_POWER_MCU_V1_2026-10-03_CURRENT.md`  
-**État projet :** `PROJECT_STATE_MAKER_PHONE_Q6A_2026-10-03_CURRENT.md`
+**État projet :** `PROJECT_STATE_MAKER_PHONE_Q6A_2026-10-03_CURRENT.md`  
+**Décisions consolidées :** `DECISIONS_ARCHITECTURE_POWER_MCU_2026-10-03.md`
 
 But : valider uniquement les risques capables d'imposer une modification PCB avant de figer schéma/placement V0.5. Les fonctions Android/radio pouvant être corrigées après fabrication ne doivent pas bloquer indéfiniment la carte.
 
@@ -44,9 +45,12 @@ Prototype S8050 depuis RP2040 ou générateur open-collector.
 ```text
 [ ] J19 alimenté + Q6A arrêté -> pulse -> cold boot
 [ ] Q6A deep -> pulse -> wake
+[ ] Q6A RUN -> pulse court -> événement Power attendu
 [ ] 10 cold boots consécutifs
 [ ] 10 wakes deep consécutifs
 ```
+
+Le test doit être réalisé avec l'architecture J19 finale ; la réussite du bouton Power avec l'ancienne alimentation Q6A ne suffit pas.
 
 ## 2.2 SLEEP_REQ
 
@@ -66,7 +70,7 @@ entrée effective en deep
 
 GPIO59 configuré en sortie Q6A. Vérifier réception stable sur GP27 avec le réseau 100 k série / 1 M pulldown.
 
-Le test doit aussi prouver que l'arrêt volontaire du heartbeat en deep n'entraîne aucune coupure MAIN_PWR.
+Le test doit aussi prouver que l'arrêt volontaire du heartbeat en deep n'entraîne aucune coupure MAIN_PWR et qu'un heartbeat absent au boot/shutdown ne génère pas de faux FAULT.
 
 ---
 
@@ -82,6 +86,8 @@ AO3400A C20917
 100 kOhm P-gate-SYS
 ```
 
+## 3.1 Reset MCU alors que le MCU reste alimenté
+
 Mesurer :
 
 ```text
@@ -89,10 +95,26 @@ Mesurer :
 [ ] GPIO HIGH -> ON franc
 [ ] GPIO LOW -> OFF rapide
 [ ] GPIO Hi-Z -> hold ~0.7..1.5 s cible
-[ ] reset RP2040 -> rail ne chute pas
+[ ] watchdog/reset RP2040 -> rail ne chute pas
+[ ] firmware réaffirme GP10/GP29 avant expiration du hold
 ```
 
 Tester MAIN et MODEM séparément.
+
+## 3.2 Storage OFF / MCU réellement désalimenté
+
+Le cas `STORAGE_SW` ouvert est électriquement différent d'un simple reset : le 3V3 du RP tombe alors que `C_HOLD` peut encore être chargé.
+
+Vérifier à l'oscilloscope et en courant :
+
+```text
+[ ] aucune injection/back-power problématique vers le RP2040 par GP10/GP29
+[ ] pas de latch-up ou redémarrage parasite du MCU
+[ ] MAIN/MODEM finissent bien OFF
+[ ] courant de stockage retombe à la valeur attendue
+```
+
+Le hold exact d'une seconde n'est pas requis pendant Storage OFF ; l'objectif est un comportement sûr et déterministe.
 
 ---
 
@@ -115,6 +137,14 @@ Banc :
 Tester au moins autour de 4.2 / 3.8 / 3.4 V batterie.
 
 Le pack/PCM/câblage retenu doit avoir une marge de courant suffisante pour les pics combinés.
+
+Ajouter un essai de pire cas système :
+
+```text
+Q6A en charge CPU + EC25 en émission LTE + MCU/annexe active
+```
+
+Observer `BAT`, `SYS`, `MAIN_PWR_OUT`, `MODEM_PWR_OUT` et la température du BQ/cuivres/connectique. Répéter batterie seule puis USB 5 V branché afin de vérifier correctement le power-path et le complément batterie.
 
 ---
 
@@ -195,6 +225,7 @@ Layout :
 [ ] SW petit et éloigné TS/CC/I2C
 [ ] vias thermiques/GND suffisants
 [ ] pistes BAT/SYS larges
+[ ] changements de couche puissance avec vias multiples
 ```
 
 Après fabrication : montée progressive 0.5 / 1 / 1.5 / 2 A avec thermique.
@@ -220,6 +251,7 @@ CC_SENSE
 Q6A SLEEP_REQ/HEARTBEAT/SBS
 EC25 level-shifter
 PWRKEY drivers
+MAIN/MODEM C_HOLD via GP10/GP29
 ```
 
 ---
