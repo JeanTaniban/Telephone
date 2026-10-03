@@ -195,7 +195,7 @@ collecteur -> TP_EC25_RST_OD -> strap DNP -> EC25 RESET_N
 
 Ainsi GP28 reste utilisable directement en 3.3 V ; après l'étage optionnel, on dispose d'une sortie open-drain adaptée au domaine 1.8 V/RESET_N. Ce n'est pas une sortie push-pull 1.8 V.
 
-Le `SN74AVC4T245` est déjà entièrement occupé par TXD/RXD/DTR/RI et ne fournitit donc pas un cinquième canal libre.
+Le `SN74AVC4T245` est déjà entièrement occupé par TXD/RXD/DTR/RI et ne fournit donc pas un cinquième canal libre.
 
 ---
 
@@ -216,7 +216,7 @@ Prévoir sur la carte Power :
 2 x 4.7 kOhm vers Q6A_3V3, DNP par défaut
 ```
 
-Avant peuplement, mesurer si le Q6A fournit déjà les pull-up nécessaires. Si oui, les DNP restent non montées.
+Avant peuplement, mesurer si le Q6A fournit déjà les pull-up nécessaires. Si oui, les DNP restent non montées. Lorsque le Q6A est éteint, GP14/GP15 doivent rester en entrée/Hi-Z côté MCU tant que l'absence de back-power n'a pas été démontrée.
 
 ---
 
@@ -293,7 +293,7 @@ L'architecture est figée, mais les points suivants restent des **gates de fabri
 [ ] USB host EC25 réellement suspendu avec VBUS restant présent.
 [ ] MODEM_PWR OFF + VBUS EC25 présent : pas de back-power significatif.
 [ ] USB-C branché + MAIN_PWR OFF : pas de back-power Q6A.
-[ ] SBS : présence/absence des pull-up Q6A mesurée avant peuplement.
+[ ] SBS : présence/absence des pull-up Q6A mesurée avant peuplement ; GP14/15 Hi-Z Q6A OFF.
 [ ] TPS610995 : shutdown/isolation et courant de stockage réels.
 [ ] footprint RP2040-Tiny, FPC accessible, mécanique <=70 x 25 mm.
 [ ] layout BQ refait selon TI et paire USB2 calculée sur le stack-up JLC réel.
