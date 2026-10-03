@@ -1,10 +1,20 @@
+# HISTORIQUE — mission supersédée pour la carte finale
+
+> **Ne pas utiliser ce document comme câblage final V0.5.**  
+> La mission courante est `MISSION_MCU_SUPERVISION_V2_2026-10-03.md`.  
+> `GPIO59` n'est plus le WAKE final : il devient `HEARTBEAT`. Le wake/cold boot final utilise le vrai `Q6A PWR_ON_KEY` commandé par le RP2040 via S8050. `GPIO58` reste `SLEEP_REQ`.
+
+Ce document reste utile uniquement comme historique de validation expérimentale GPIO58/GPIO59 et STR.
+
+---
+
 # MISSION — MCU superviseur V1 / suspend-wake Q6A
 
 **Date :** 2026-09-30  
 **Projet :** Maker Phone / Radxa Dragon Q6A V1.21  
 **Document d'état associé :** `PROJECT_STATE_MCU_DSI_PROTO_2026-09-30.md`  
-**CDC Power/MCU courant :** `CDC_CARTE_POWER_MCU_V1_2026-09-30.md`  
-**État projet courant :** `PROJECT_STATE_MAKER_PHONE_Q6A_2026-09-30_CURRENT.md`
+**CDC Power/MCU courant à l'époque :** `CDC_CARTE_POWER_MCU_V1_2026-09-30.md`  
+**État projet courant à l'époque :** `PROJECT_STATE_MAKER_PHONE_Q6A_2026-09-30_CURRENT.md`
 
 ---
 
@@ -213,7 +223,7 @@ Ne pas modifier plusieurs couches simultanément avant d'avoir isolé la cause.
 
 # 9. Relation avec la carte Power finale
 
-La mission GPIO-only est un prototype de validation. La carte finale est définie par `CDC_CARTE_POWER_MCU_V1_2026-09-30.md` et ajoute notamment :
+La mission GPIO-only est un prototype de validation. La carte finale était alors définie par `CDC_CARTE_POWER_MCU_V1_2026-09-30.md` et ajoutait notamment :
 
 ```text
 MAIN_PWR physique Q6A
@@ -223,7 +233,7 @@ TPS610995 + STORAGE_SW
 EC25 UART/RI/DTR/PWK/RST
 ```
 
-La réussite de GPIO58/GPIO59 est un **gate pré-fabrication prioritaire**, car ces deux lignes sont reprises telles quelles dans la PCB finale.
+Cette section est historique. Pour la carte finale V0.5, utiliser `CDC_CARTE_POWER_MCU_V1_2026-10-03_CURRENT.md` et `MISSION_MCU_SUPERVISION_V2_2026-10-03.md`.
 
 ---
 
