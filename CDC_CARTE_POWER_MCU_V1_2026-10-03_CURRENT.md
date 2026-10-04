@@ -2,24 +2,32 @@
 
 **Date :** 2026-10-04  
 **Projet :** Maker Phone / Radxa Dragon Q6A V1.21  
-**Statut :** **CANDIDAT FINAL À VALIDATION UTILISATEUR — schéma/PCB V0.6**  
+**Statut :** **VALIDÉ / GELÉ — schéma/PCB V0.7**  
 **Fabrication cible :** JLCPCB Economic PCBA  
-**Priorité composants :** Basic > Promotional > Extended ; stock et classification à revalider avant commande.
+**Priorité composants :** Basic > Promotional > Extended ; stock et classification à revalider au moment de la commande.
 
-Ce document est la référence électrique normative courante pour la carte Power/MCU. Il supersède les anciens CDC Power/MCU lorsqu'ils sont contradictoires.
+Ce document est la **référence électrique normative courante** de la carte Power/MCU. Il supersède les anciens CDC Power/MCU dès qu'ils sont contradictoires.
 
-Décisions ajoutées lors de la passe finale du 04/10 :
+Le gel V0.7 intègre toutes les décisions prises pendant la revue d'architecture, notamment :
 
 ```text
-- aucun connecteur de faisceau sur la carte Power : pastilles THT pour fils soudés ;
-- BQ25628E INT n'est plus relié au MCU ; surveillance par polling I2C ;
-- GP6 devient GPIO de réserve ;
-- GP28 reste GPIO de réserve + option EC25 RESET_N open-drain DNP ;
-- Volume+ / Volume- ne passent pas par le MCU ; ils vont directement au Q6A ;
+- batterie cible fixée : Motorola JK50 1S, Genuine Service Pack ;
+- connecteur batterie PCB fixé : Molex 5050060812 / LCSC C779875 ;
+- pinout JK50 documenté : 1/8 GND, 4/5 VBAT, 2 ID2, 3 ID1, 6 NTC1, 7 NTC2 ;
+- BAT_ARM mécanique ajouté entre batterie et BQ afin de brancher la batterie carte désarmée ;
+- pas de deuxième BMS/PCM en série sur le PCB ;
+- pas de fusible batterie obligatoire en baseline V1 ;
+- pas d'anti-inversion série en baseline ; le connecteur batterie est détrompé ;
+- JK50 HV ~4.40 V volontairement sous-chargée : BQ VREG initial ~4.15 V ;
+- BQ25628E INT non relié au MCU ; surveillance par polling I2C ;
+- GP6 réserve ; GP28 réserve + option EC25 RESET_N open-drain DNP ;
+- Volume+ / Volume- directement sur deux GPIO du Q6A, pas sur le MCU ;
 - VOL+ = Q6A J20 pin 29 / GPIO31 ;
 - VOL- = Q6A J20 pin 32 / GPIO30 ;
-- ANNEXE1 = alimentation commutée de l'ampli haut-parleur ;
-- ANNEXE2 = rail SYS commuté générique pour caméras / flash / outils / annexes futures.
+- ANNEXE1 = alimentation ampli haut-parleur ;
+- ANNEXE2 = rail SYS commuté générique pour caméras / flash / outils / annexes ;
+- hors batterie, aucun connecteur de faisceau sur la carte Power : pastilles THT pour fils soudés ;
+- MAIN_PWR, MODEM_PWR, PWR_ON_KEY, SLEEP_REQ, HEARTBEAT, SBS et supervision EC25 conservés.
 ```
 
 ---
@@ -27,11 +35,24 @@ Décisions ajoutées lors de la passe finale du 04/10 :
 # 0. Architecture finale retenue
 
 ```text
-USB-C extérieur 5 V / USB2 DEVICE uniquement
-        |
+                        Motorola JK50 1S
+                       Molex 5050040812
+                              |
+                  J_BAT = Molex 5050060812
+                              |
+                          BAT_RAW+
+                              |
+                BAT_ARM : interrupteur SPST externe
+                 via 2 grosses pastilles THT
+                              |
+                             BAT
+                              |
+USB-C extérieur 5 V           |
+DEVICE uniquement             |
+        |                     |
         +--> VBUS --> TVS --> BQ25628E --> SYS -----------------------------+
         |                         |                                          |
-        |                         +--> BAT --> batterie 1S protégée + NTC    |
+        |                         +<------> BAT                               |
         |                                                                    |
         +--> D+/D- -----------------------------> Q6A USB OTG DEVICE         |
         +--> VBUS -- Schottky ------------------> Q6A OTG VBUS               |
@@ -77,39 +98,251 @@ La carte Power ne transporte ni le DSI écran, ni le tactile, ni l'USB Q6A <-> E
 
 ---
 
-# 1. Batterie et domaine SYS
+# 1. Batterie JK50, connecteur, protection et BAT_ARM
 
-## 1.1 Batterie
+## 1.1 Modèle de batterie figé
 
-```text
-Type            : Li-ion/LiPo 1S classique
-Tension max     : 4.20 V ; cellule HV 4.35/4.40 V interdite
-Capacité cible  : ~5000 mAh
-Protection      : pack protégé / PCM obligatoire
-NTC             : 10 kOhm type Semitec 103AT-2 ou strictement compatible
-Courant cible   : pack/PCM/fils capables d'encaisser Q6A + LTE + annexes
-```
+La batterie V1 est une **Motorola JK50** de préférence **Genuine Service Pack** (famille utilisée notamment sur plusieurs Moto G/E).
 
-Objectif de sélection pack : **>=5 A continu avec marge de pic**, à confirmer sur la cellule et son PCM réels.
-
-Toutes les liaisons batterie sont faites par grosses pastilles traversantes pour fils soudés :
+Caractéristiques de référence retenues pour le CDC :
 
 ```text
-BAT+
-BAT-
-NTC
+Référence famille      : Motorola JK50
+Chimie / architecture  : Li-ion/LiPo pouch 1S smartphone
+Tension nominale       : ~3.80 V
+Capacité rated         : ~4850 mAh
+Capacité typical       : ~5000 mAh
+Énergie                : ~18.5 à 19 Wh selon révision
+Tension charge pack    : jusqu'à ~4.40 V pour le pack d'origine
+Charge max documentée  : ~3.0 A
+Décharge max documentée: ~4.85 A
 ```
 
-Aucun connecteur Molex/JST n'est imposé par la PCB.
+La JK50 est donc une **cellule HV**. C'est volontaire et accepté : la carte V1 **ne la charge pas jusqu'à 4.40 V**.
 
-## 1.2 Fusible batterie
+Le BQ25628E est configuré initialement autour de :
 
 ```text
-F_BAT  : footprint optionnel DNP
-SJ_BAT : jumper cuivre fermé par défaut
+VREG = 4.15 V
+ICHG <= 2 A
 ```
 
-Le pack protégé reste obligatoire.
+Conséquences :
+
+```text
+- la cellule est volontairement sous-chargée ;
+- marge accrue vis-à-vis du domaine EC25 alimenté depuis SYS ;
+- capacité utile réelle inférieure aux ~5000 mAh annoncés à pleine charge 4.40 V ;
+- le SOC Android doit représenter la fenêtre réellement utilisée par notre téléphone,
+  pas la capacité électrochimique complète de la JK50.
+```
+
+Ne jamais augmenter VREG vers 4.40 V sans réétudier complètement MODEM_PWR / EC25 et les transitoires SYS.
+
+## 1.2 Dimensions batterie
+
+Dimensions de référence d'intégration pour la famille JK50 :
+
+```text
+~86.1 x 65.0 x 4.8 mm
+```
+
+Réservation mécanique recommandée au stade prototype :
+
+```text
+>= 87 x 66 x 5.5 mm
+```
+
+Cette réservation laisse une petite marge de tolérance mais **ne remplace pas la mesure de la vraie Genuine Service Pack reçue**, notamment autour du flex, de la protection du pack et de la sortie connecteur.
+
+Avant gel mécanique du châssis : mesurer largeur, longueur, épaisseur, position du flex, rayon de courbure et hauteur du connecteur sur l'exemplaire réel.
+
+## 1.3 Connecteur batterie figé
+
+Connecteur côté **notre PCB** :
+
+```text
+J_BAT        : Molex 5050060812
+LCSC/JLC ref : C779875
+Nombre pins  : 8
+Pas          : 0.4 mm
+Hauteur mate : ~0.75 mm
+Famille      : Molex Battery / board-to-board
+```
+
+Connecteur complémentaire côté flex batterie :
+
+```text
+Molex 5050040812
+```
+
+La série est conçue avec **4 contacts puissance + 4 contacts signal** et est adaptée à plusieurs ampères ; le couple est cohérent avec la JK50 et ses ~4.85 A max documentés.
+
+Le `C779875` est un composant spécialisé/Extended à accepter en V1. Le stock JLC/LCSC doit être revalidé au moment de la commande. Si JLC ne peut pas l'assembler, le plan de secours est assemblage manuel/rework spécialisé ; le footprint reste celui du Molex officiel.
+
+**Le footprint et l'orientation doivent provenir exclusivement du drawing Molex officiel.** Ne jamais déduire le pin 1 à partir d'une photo de batterie.
+
+## 1.4 Pinout JK50 / Molex 5050060812
+
+Brochage retenu, recoupé sur les schémas de réparation Motorola utilisant cette famille :
+
+```text
+Pin 1 -> BATT- / GND
+Pin 2 -> ID2
+Pin 3 -> ID1
+Pin 4 -> VBAT+
+Pin 5 -> VBAT+
+Pin 6 -> NTC1
+Pin 7 -> NTC2
+Pin 8 -> BATT- / GND
+```
+
+Câblage PCB :
+
+```text
+pins 4 + 5 -> BAT_RAW+
+pins 1 + 8 -> GND / BAT-
+pin 2      -> TP_BAT_ID2
+pin 3      -> TP_BAT_ID1
+pin 6      -> TP_BAT_NTC1 + sélection vers BQ_TS
+pin 7      -> TP_BAT_NTC2 + sélection alternative vers BQ_TS
+```
+
+Les lignes ID1/ID2 ne sont pas nécessaires au fonctionnement V1 du téléphone et restent en haute impédance/testpoints tant qu'une fonction n'est pas justifiée.
+
+## 1.5 NTC1 / NTC2
+
+La JK50 expose deux lignes thermiques. Les documents Motorola permettent d'identifier `NTC1` et `NTC2`, mais **la courbe R/T exacte du thermistor du pack doit être caractérisée sur la vraie batterie reçue** avant de figer la population TS du BQ.
+
+Le PCB doit donc prévoir :
+
+```text
+NTC1 -> TP -> strap 0 Ohm / DNP -> réseau BQ_TS
+NTC2 -> TP -> strap 0 Ohm / DNP -> réseau BQ_TS
+```
+
+Une seule source thermique est sélectionnée vers BQ_TS à la fois.
+
+Conserver si la place est gratuite deux pads `NTC_EXT / GND` permettant de coller un NTC externe 10 kOhm sur la batterie en solution de secours.
+
+L'ancien réseau calculé pour un **Semitec 103AT-2 10 kOhm** reste une référence/fallback mais **n'est plus supposé compatible avec la JK50 sans mesure**.
+
+Les résistances `RT1/RT2` du réseau TS doivent donc être considérées comme **population à valider après mesure JK50**, pas comme une hypothèse irrévocable.
+
+## 1.6 BAT_ARM — armement batterie
+
+Objectif : pouvoir brancher/remplacer la batterie sans mettre immédiatement toute la carte sous tension.
+
+Topology :
+
+```text
+J_BAT pins 4/5 -> BAT_RAW+
+                   |
+             PAD_BAT_ARM_A
+                   |
+             interrupteur SPST externe
+                   |
+             PAD_BAT_ARM_B
+                   |
+                  BAT
+                   |
+             BQ25628E BAT
+```
+
+Exigences :
+
+```text
+- 2 grosses pastilles THT clairement marquées ;
+- interrupteur externe DC basse tension, >=5 A avec faible résistance de contact ;
+- ouvert pendant branchement/débranchement batterie ;
+- fermé seulement après inspection / mesure ;
+- chemin cuivre BAT_RAW/BAT dimensionné pour le courant pack.
+```
+
+`BAT_ARM` coupe **la batterie positive**, pas le port USB-C.
+
+Important :
+
+```text
+BAT_ARM ouvert + USB-C absent  -> carte non alimentée par la batterie
+BAT_ARM ouvert + USB-C présent -> le BQ peut alimenter SYS depuis VBUS
+```
+
+`BAT_ARM` n'est donc pas un interrupteur général absolu si l'USB-C est branché.
+
+## 1.7 BAT_ARM versus STORAGE_SW
+
+Les deux interrupteurs ont des rôles distincts :
+
+```text
+BAT_ARM
+  -> isole physiquement la batterie du BQ / de la carte
+  -> utile assemblage, maintenance, stockage profond et sécurité de manipulation
+
+STORAGE_SW
+  -> coupe seulement l'alimentation du RP2040 via EN du TPS610995
+  -> n'isole pas la batterie du BQ/SYS
+  -> utilisé après shutdown normal lorsque MAIN_PWR et MODEM_PWR sont déjà OFF
+```
+
+Il ne faut pas remplacer l'un par l'autre.
+
+## 1.8 PCM/BMS, fusible et anti-inversion
+
+La JK50 est utilisée comme **pack smartphone protégé**. Pour une batterie 1S il n'y a pas d'équilibrage multi-cellules ; la protection interne est assimilée ici au **PCM/protection pack**.
+
+Architecture V1 :
+
+```text
+JK50 avec protection pack
+        |
+     BAT_ARM
+        |
+   BQ25628E
+        |
+       SYS
+```
+
+Décisions :
+
+```text
+- aucun second BMS/PCM complet en série sur notre PCB ;
+- BQ25628E = chargeur/power-path, pas remplacement du PCM batterie ;
+- aucun fusible batterie obligatoire en baseline V1 ;
+- aucun PTC obligatoire ;
+- aucune diode Schottky série sur BAT ;
+- aucun P-MOS anti-inversion série en baseline.
+```
+
+Raisons :
+
+```text
+- un second BMS ajoute résistance, seuils de coupure concurrents et recovery ambigu ;
+- une Schottky est trop dissipative sur un système 1S à plusieurs ampères ;
+- un MOS supplémentaire ajoute perte et complexité dans le chemin de tous les pics ;
+- le connecteur Molex batterie est détrompé et interne au téléphone ;
+- le pack possède sa propre protection.
+```
+
+Un footprint de fusible DNP n'est **pas requis**. Il peut être ajouté uniquement si son coût mécanique/routage est nul ; il ne doit pas être une dépendance de la V1.
+
+Le seuil OCP exact de la protection JK50 n'est pas considéré comme publiquement garanti dans le CDC. Il doit être caractérisé indirectement au banc ; ne jamais supposer que `4.85 A` est le seuil de déclenchement du PCM. `4.85 A` est la décharge maximale documentée du pack.
+
+## 1.9 Budget courant batterie
+
+La JK50 est acceptée malgré une décharge max documentée proche de **4.85 A**, donc la marge sur le pire cas système n'est pas énorme.
+
+Gate obligatoire :
+
+```text
+Q6A charge CPU/GPU + EC25 TX LTE + ANNEXE1/ANNEXE2 selon scénario
+-> aucune coupure pack
+-> aucune chute VBAT dangereuse
+-> aucun reset Q6A/EC25
+-> température batterie acceptable
+```
+
+Ne pas supposer que ANNEXE1 et ANNEXE2 peuvent fournir chacun 1 A simultanément avec le pire cas Q6A + LTE. Si nécessaire, le firmware imposera une politique de puissance : coupe ANNEXE2, réduit la charge, ou évite certaines combinaisons lors des pics radio.
 
 ---
 
@@ -122,12 +355,14 @@ U_CHG       : BQ25628ERYKR
 JLC/LCSC    : C18221178
 Boîtier     : WQFN-18 2.5 x 3 mm
 Batterie    : 1S
-Charge max  : 2 A
+Charge max  : 2 A dans notre politique V1
 Power-path  : NVDC
 ADC/I2C     : oui
 ```
 
 Le BQ fournit VBUS/VBAT/VSYS/IBUS/IBAT/TS et les états charge/fault. Il n'est pas considéré comme fuel-gauge de précision.
+
+Il doit fonctionner de manière sûre même si le RP2040 est bloqué ou éteint.
 
 ## 2.2 Pins et politique INT
 
@@ -141,9 +376,9 @@ STAT -> NC
 QON  -> testpoint / pull-up interne conservé
 ```
 
-**Décision finale : GP6 n'est plus consommé par BQ_INT.**
+**GP6 n'est pas consommé par BQ_INT.**
 
-Le MCU surveille le BQ par polling I2C. Les protections et la charge sûre ne doivent pas dépendre d'une interruption ou du firmware MCU.
+Le MCU surveille le BQ par polling I2C. Les protections du BQ ne doivent pas dépendre d'une interruption MCU.
 
 Politique firmware initiale :
 
@@ -152,8 +387,6 @@ RUN / charge active : polling typique ~1 s
 veille MCU          : cadence ralentie selon besoin
 réveil / événement  : lecture immédiate de tous les états utiles
 ```
-
-La cadence exacte reste firmware ; elle ne modifie pas le PCB.
 
 ## 2.3 ILIM et configuration de départ
 
@@ -169,7 +402,11 @@ ICHG                : <=2 A et réduit selon thermique / charge système
 
 `EN_EXTILIM` reste actif tant que l'annonce Type-C n'est pas reconnue de façon fiable.
 
+`VREG=4.15 V` est une politique volontairement conservatrice avec la JK50 HV ; elle n'essaie pas de récupérer les 5000 mAh complets annoncés à la tension haute du pack.
+
 ## 2.4 MODEM_PWR et plage SYS
+
+Quectel EC25 : domaine d'alimentation à maintenir dans la plage sûre du module, avec absolu à respecter.
 
 Politique de départ :
 
@@ -181,18 +418,25 @@ Gate absolue :
 
 ```text
 EC25 carrier BAT doit rester < 4.30 V dans tous les états,
-y compris batterie pleine, USB branché et transitoires.
+y compris batterie chargée, USB branché et transitoires.
 ```
 
-## 2.5 NTC / TS
+En dessous d'environ 3.35 V, tenter un arrêt propre du modem avant `MODEM_PWR OFF`.
+
+## 2.5 TS / thermique
+
+La topologie BQ_TS est conservée mais devient **configurable pour la JK50**.
+
+Anciennes valeurs de référence pour un NTC externe 10 kOhm 103AT-2 :
 
 ```text
 RT1 = 5.1 kOhm / C25905 Basic
 RT2 = 30 kOhm  / C22984 Basic
-NTC = 10 kOhm 103AT-2 compatible, hors PCB
 ```
 
-Validation thermique obligatoire avant charge 2 A.
+Ces valeurs ne sont à peupler pour la JK50 que si la caractérisation NTC confirme la compatibilité. Sinon recalculer la population sans modifier le PCB.
+
+Validation thermique obligatoire avant d'autoriser 2 A de charge.
 
 ## 2.6 Passifs principaux
 
@@ -219,7 +463,8 @@ CBTST    : 1 x 47 nF 50 V / C1622
 - vias GND/thermiques sous et autour du BQ ;
 - SW éloigné de TS, I2C, CC et ADC ;
 - BAT/SYS/MAIN/MODEM très larges ;
-- vias multiples sur changements de couche puissance.
+- vias multiples sur changements de couche puissance ;
+- J_BAT et BAT_ARM placés de manière à garder BAT_RAW/BAT court et robuste.
 ```
 
 ---
@@ -236,6 +481,8 @@ MTP / USB device
 ```
 
 **Aucun host USB-C, aucun DRP, aucun contrôleur CC, aucun PD en V1.**
+
+Le host utilisateur futur passe par un port USB2 host Q6A dédié, pas par l'USB-C extérieur.
 
 ## 3.2 Connecteur et données
 
@@ -255,6 +502,8 @@ USB-C VBUS -> anode B5819W SL / C8598
 cathode    -> Q6A OTG VBUS
 ```
 
+La Schottky empêche un retour simple du 5 V Q6A vers l'entrée USB-C/BQ.
+
 Gate : USB-C branché + MAIN_PWR OFF ne doit pas back-powerer significativement le Q6A par VBUS ou D+/D-.
 
 ## 3.4 CC1/CC2 et détection courant
@@ -272,7 +521,9 @@ CC2 -- 470 kOhm --+
                   GND
 ```
 
-Tout niveau ambigu est traité comme source Default/conservatrice.
+Une seule CC est active selon orientation. Le point ADC voit environ la moitié de la tension CC active.
+
+Firmware : attendre stabilisation, moyenner, et traiter tout niveau ambigu comme source Default/conservatrice.
 
 ## 3.5 Protection
 
@@ -299,7 +550,7 @@ Waveshare RP2040-Tiny soudé manuellement face BOTTOM, sans headers.
 - aucun via/testpoint pouvant toucher le dessous du module.
 ```
 
-Le FPC du module reste le chemin USB/BOOTSEL/RUN de récupération.
+Le FPC du module reste le chemin USB/BOOTSEL/RUN de récupération. Pas de SWD supplémentaire obligatoire en V1.
 
 ## 4.2 Alimentation
 
@@ -309,6 +560,8 @@ L_MCU : MAKK2016T2R2M / C92923 / 2.2 uH
 CIN   : 10 uF
 COUT  : 2 x 10 uF
 ```
+
+Le rail s'appelle `MCU_VSYS` car le TPS610995 peut fonctionner en pass-through selon VIN.
 
 ## 4.3 Storage switch
 
@@ -322,7 +575,7 @@ fermé  : MCU alimenté
 ouvert : hard-off MCU / stockage
 ```
 
-Storage OFF ne remplace jamais le shutdown normal.
+Storage OFF ne remplace jamais le shutdown normal et ne remplace pas BAT_ARM.
 
 ## 4.4 Pinout RP2040-Tiny final
 
@@ -350,9 +603,9 @@ GP28  <-> RESERVE / TP 3.3 V / option EC25 RESET_N OD DNP
 GP29  ->  MODEM_PWR_EN avec RC hold
 ```
 
-**Deux réserves pratiques sont donc conservées : GP6 et GP28.**
+**Deux réserves pratiques sont conservées : GP6 et GP28.**
 
-GP6 doit être exposé simplement, sans fonction imposée. GP28 conserve en plus l'étage RESET_N optionnel DNP décrit plus bas.
+GP6 doit être exposé simplement sans fonction imposée. GP28 conserve en plus l'étage RESET_N optionnel DNP décrit plus bas.
 
 ---
 
@@ -363,6 +616,7 @@ GP6 doit être exposé simplement, sans fonction imposée. GP28 conserve en plus
 ```text
 Q_MAIN_P  : JMTQ55P02A / C2890429
 Q_MODEM_P : JMTQ55P02A / C2890429
+P-MOS 20 V, faible RDS(on) à faible VGS
 ```
 
 Les deux rails sont OFF si le MCU est absent ou durablement arrêté.
@@ -392,13 +646,21 @@ AO3400A : C20917
 1 uF    : C15849
 ```
 
-Cible hold mesurée : ~0.7–1.5 s.
+Constante RC nominale ~1 s ; le délai réel dépend du seuil AO3400A.
+
+Cible mesurée :
+
+```text
+~0.7 à 1.5 s
+```
 
 ```text
 GPIO HIGH -> ON
 GPIO LOW  -> OFF rapide
 GPIO Hi-Z -> maintien temporaire par RC
 ```
+
+Le condensateur est sur la grille du petit NMOS, pas sur le P-MOS puissance.
 
 Au boot MCU, GP10 et GP29 sont traités en priorité absolue pour réaffirmer HIGH avant expiration du hold lorsqu'un rail était déjà actif.
 
@@ -410,7 +672,8 @@ Branches simples, **OFF par défaut**, sans RC de maintien.
 
 ```text
 P-MOS : AO3401A / C15127 Basic
-cible : ~1 A continu max par annexe, sous réserve thermique/layout
+cible électrique locale : ~1 A continu max par annexe,
+sous réserve thermique/layout et budget courant batterie global
 ```
 
 ## 6.1 ANNEXE1
@@ -423,6 +686,8 @@ SYS -> ANNEXE1_OUT -> ampli
 ```
 
 Le signal audio lui-même reste géré par le Q6A / chaîne audio dédiée, hors fonction Power de cette carte.
+
+Le firmware peut couper l'ampli pendant certaines phases radio/appel si cela réduit bruit ou consommation.
 
 ## 6.2 ANNEXE2
 
@@ -442,7 +707,7 @@ GP12 -> ANNEXE2_EN
 SYS -> ANNEXE2_OUT
 ```
 
-Important : ANNEXE2 est du **SYS commuté non régulé**. Toute annexe nécessitant 5 V, 3.3 V fixe ou une autre tension doit posséder son propre convertisseur/régulateur aval.
+ANNEXE2 est du **SYS commuté non régulé**. Toute annexe nécessitant 5 V, 3.3 V fixe ou une autre tension doit posséder son propre convertisseur/régulateur aval.
 
 ---
 
@@ -477,7 +742,7 @@ FB4   -> DNP
 R185..R189 -> DNP si inspection confirme
 ```
 
-J19 devient l'entrée 1S principale du Q6A.
+J19 devient l'entrée 1S principale du Q6A depuis MAIN_PWR.
 
 ## 7.3 PWR_ON_KEY
 
@@ -488,7 +753,14 @@ base -> 100 kOhm -> GND
 collecteur -> Q6A PWR_ON_KEY
 ```
 
-Fonctions : cold boot, wake deep, événement Power Android, appui long recovery si nécessaire.
+Fonctions :
+
+```text
+- cold boot après MAIN_PWR ON ;
+- wake depuis deep ;
+- événement Power Android ;
+- appui long de récupération si nécessaire.
+```
 
 Pulse initial à caractériser autour de 100–300 ms.
 
@@ -501,7 +773,7 @@ SLEEP_REQ -> 10 kOhm série -> GP9
 
 MCU : actif = sortie LOW ; repos = input/Hi-Z.
 
-SLEEP_REQ déclenche la procédure complète de suspend : EC25, USB host, OTG externe, wake sources, puis `mem_sleep=deep`.
+SLEEP_REQ reste distinct de PWR_ON_KEY car le suspend normal doit exécuter une procédure propre : EC25, USB host, OTG externe, Wi-Fi/wake sources, puis `mem_sleep=deep`.
 
 ## 7.5 HEARTBEAT
 
@@ -510,7 +782,11 @@ Q6A GPIO59 -> 100 kOhm série -> GP27
 GP27 -> 1 MOhm -> GND
 ```
 
-Le heartbeat est un statut logiciel. Son absence seule ne coupe jamais MAIN_PWR.
+Le heartbeat est un **statut logiciel**, pas une sécurité combinatoire.
+
+Il peut coder RUN / transition / shutdown et peut s'arrêter volontairement en deep sleep.
+
+Sa perte seule ne coupe jamais MAIN_PWR immédiatement. Le MCU tente d'abord récupération/wake, puis seulement un power-cycle après timeout explicite.
 
 ## 7.6 SBS / batterie virtuelle Android
 
@@ -525,7 +801,9 @@ Prévoir :
 2 x 4.7 kOhm vers Q6A_3V3, DNP par défaut
 ```
 
-Ne jamais tirer SBS vers 3V3_MCU. Mesurer d'abord les pull-up déjà présents sur le Q6A.
+Ne jamais tirer SBS vers 3V3_MCU afin d'éviter le back-power du Q6A éteint.
+
+Mesurer d'abord les pull-up déjà présents sur le Q6A.
 
 ---
 
@@ -565,7 +843,7 @@ Entrées actives bas, déclarées côté Linux comme `gpio-keys` / événements 
 
 Aucune liaison VOL+/VOL- vers GP6, GP28 ou un ADC RP2040.
 
-Ces boutons sont hors logique Power board ; ils sont câblés directement vers le Q6A par fils soudés / header adapté à l'intégration mécanique finale.
+Cette décision conserve GP6 et GP28 disponibles et évite toute dépendance MCU pour le volume Android.
 
 ---
 
@@ -595,6 +873,15 @@ Cette liaison ne traverse pas la carte Power.
 
 Pas de switch VBUS EC25 en V1.
 
+Gates :
+
+```text
+- le host Q6A doit suspendre réellement l'USB en deep ;
+- VBUS présent avec MODEM_PWR OFF ne doit pas back-powerer significativement l'EC25 ;
+- si nécessaire, le faisceau direct pourra être modifié plus tard pour interrompre VBUS,
+  sans refaire la carte Power.
+```
+
 ## 9.3 UART / DTR / RI
 
 ```text
@@ -605,6 +892,10 @@ VCCB = 3V3_MCU
 EC25 -> MCU : TXD, RI
 MCU -> EC25 : RXD, DTR
 ```
+
+Le composant est intégralement occupé par ces quatre signaux.
+
+Prévoir :
 
 ```text
 VIO -> 100 kOhm -> GND
@@ -625,7 +916,11 @@ base -> 100 kOhm -> GND
 collecteur -> EC25 PWRKEY
 ```
 
-Recovery : AT propre -> PWRKEY -> MODEM_PWR power-cycle.
+Recovery :
+
+```text
+AT propre -> PWRKEY -> MODEM_PWR power-cycle
+```
 
 ## 9.5 RESET_N / réserve GP28
 
@@ -650,46 +945,89 @@ Ce chemin est open-drain ; ce n'est pas une sortie push-pull 1.8 V.
 
 # 10. Machine d'états Power
 
+## 10.1 États logiques
+
 ```text
-STORAGE : MCU/Q6A/EC25 OFF
-OFF     : MCU ON ; MAIN/MODEM OFF
-BOOT    : MAIN ON -> délai PMIC -> PWR_ON_KEY -> heartbeat -> MODEM si SYS sûr
-RUN     : MAIN ON ; fonctionnement normal
-DEEP    : MAIN ON ; MODEM éventuellement ON ; heartbeat peut s'arrêter volontairement
-SHUTDOWN: Android + modem arrêtés proprement -> MODEM OFF -> MAIN OFF
-FAULT   : récupération graduelle ; hard cut seulement en dernier recours
+BAT_DISARMED : BAT_ARM ouvert ; batterie isolée ; USB-C peut néanmoins alimenter SYS
+STORAGE      : après shutdown, MCU hard-off par STORAGE_SW ; BAT_ARM peut rester fermé
+OFF          : MCU ON ; MAIN/MODEM OFF
+BOOT         : MAIN ON -> délai PMIC -> PWR_ON_KEY -> heartbeat -> MODEM si SYS sûr
+RUN          : MAIN ON ; fonctionnement normal
+DEEP         : MAIN ON ; MODEM éventuellement ON ; heartbeat peut s'arrêter volontairement
+SHUTDOWN     : Android + modem arrêtés proprement -> MODEM OFF -> MAIN OFF
+FAULT        : récupération graduelle ; hard cut seulement en dernier recours
 ```
 
-## Reset MCU pendant RUN
+## 10.2 Procédure de première mise sous tension / maintenance
+
+```text
+1. USB-C débranché.
+2. BAT_ARM ouvert.
+3. brancher JK50 sur J_BAT.
+4. vérifier polarité mécanique, absence de court BAT_RAW-GND et tension BAT_RAW.
+5. fermer BAT_ARM.
+6. MCU démarre si STORAGE_SW fermé.
+7. système reste en état OFF jusqu'à demande de boot Q6A.
+```
+
+## 10.3 Cold boot
+
+```text
+BAT_ARM fermé
+STORAGE_SW fermé
+-> MCU boot
+-> lecture/config BQ
+-> MAIN_PWR_EN HIGH
+-> attendre stabilisation J19 / PMIC
+-> pulse Q6A PWR_ON_KEY
+-> attendre HEARTBEAT
+-> si VSYS sûr : MODEM_PWR_EN HIGH
+-> pulse EC25 PWRKEY
+```
+
+## 10.4 Reset MCU pendant RUN
 
 ```text
 RC MAIN/MODEM maintient ~1 s
 -> RP2040 reboot
 -> GP10/GP29 réaffirmés immédiatement
 -> pas de reset Q6A/modem attendu
+-> resynchronisation HEARTBEAT/BQ/UART
 ```
 
-## Suspend normal
+## 10.5 Suspend normal
 
 ```text
 Power utilisateur -> MCU
 -> SLEEP_REQ
--> EC25 QSCLK/DTR + USB host suspend
--> USB OTG externe -> none si requis
--> gestion Wi-Fi/wake sources
+-> Q6A prépare :
+   EC25 QSCLK/DTR + USB host suspend
+   USB OTG externe -> none si requis
+   Wi-Fi/autres wake sources traités
+   heartbeat adapté
 -> mem_sleep=deep
 ```
 
-Réveil : PWR_ON_KEY.
+Réveil : pulse `Q6A PWR_ON_KEY`.
 
-## Shutdown normal
+MAIN_PWR reste ON. MODEM_PWR reste ON si le modem doit demeurer joignable.
+
+## 10.6 Shutdown normal
 
 ```text
 1. shutdown Android propre
 2. arrêt EC25 propre
-3. MODEM_PWR OFF
-4. MAIN_PWR OFF
-5. MCU reste ON tant que STORAGE_SW est fermé
+3. timeout / confirmation
+4. MODEM_PWR OFF
+5. MAIN_PWR OFF
+6. MCU reste ON tant que STORAGE_SW est fermé
+```
+
+Après shutdown, on peut :
+
+```text
+- ouvrir STORAGE_SW pour hard-off MCU ;
+- ou ouvrir BAT_ARM pour isoler physiquement la batterie.
 ```
 
 ---
@@ -701,28 +1039,44 @@ Le MCU utilise :
 ```text
 VBAT / VSYS / IBAT / IBUS / TS
 état charge/faults
-courbe OCV/SOC
+courbe OCV/SOC adaptée à la JK50
 intégration logicielle lorsque pertinente
 ```
 
-Exposition via SBS possible. Ce n'est pas un fuel-gauge de précision.
+Exposition via SBS possible.
+
+Le SOC V1 représente la **fenêtre d'énergie réellement utilisée avec VREG ~4.15 V**, pas nécessairement les ~5000 mAh accessibles lorsque la JK50 est chargée jusqu'à sa tension HV d'origine.
+
+Ce n'est pas un fuel-gauge de précision.
 
 `MAX17048` n'est pas requis. Un footprint DNP éventuel ne doit jamais être une dépendance V1.
 
 ---
 
-# 12. Faisceaux / pastilles THT
+# 12. Connectique, faisceaux et pastilles THT
 
-## 12.1 Règle générale
+## 12.1 Exception batterie
 
-**Aucun connecteur de faisceau n'est retenu sur cette carte.**
+La batterie est la **seule liaison interne disposant d'un connecteur PCB dédié** :
 
-Les liaisons externes sont des pastilles traversantes percées, assez grandes pour soudure manuelle et reprise mécanique, clairement sérigraphiées.
+```text
+J_BAT = Molex 5050060812 / C779875
+mate pack = Molex 5050040812
+```
+
+Cela évite de souder directement une batterie active sur la carte.
+
+## 12.2 Règle générale hors batterie
+
+**Aucun connecteur de faisceau n'est retenu pour Q6A, EC25, annexes, boutons ou interrupteurs.**
+
+Ces liaisons utilisent des pastilles traversantes percées, dimensionnées pour soudure manuelle et clairement sérigraphiées.
 
 Groupes minimum :
 
 ```text
-BAT      : BAT+ / BAT- / NTC
+BAT_ARM  : BAT_RAW+ / BAT (2 grosses pastilles vers interrupteur externe)
+BAT AUX  : ID1 / ID2 / NTC1 / NTC2 en TP/straps ; BAT_RAW+/GND service si utile
 Q6A PWR  : MAIN_PWR_OUT / GND
 Q6A CTRL : PWR_ON_KEY / SLEEP_REQ / HEARTBEAT / SBS_SDA / SBS_SCL / Q6A_3V3_REF / GND
 EC25 PWR : MODEM_PWR_OUT / GND
@@ -734,18 +1088,20 @@ STORAGE  : 2 pads pour interrupteur STORAGE_SW
 RESERVE  : GP6 / GND ; GP28 / GND
 ```
 
-Les sorties de puissance doivent utiliser des trous/pads plus gros que les signaux logiques.
+Les sorties de puissance et BAT_ARM utilisent des trous/pads plus gros que les signaux logiques.
 
-Prévoir soulagement mécanique / possibilité d'attacher les faisceaux hors pads si la mécanique finale le permet ; les pads ne doivent pas reprendre seuls les efforts d'arrachement.
+Prévoir soulagement mécanique / fixation de faisceaux hors pads quand la mécanique finale le permet ; les pads ne doivent pas reprendre seuls les efforts d'arrachement.
 
 ---
 
 # 13. Testpoints obligatoires
 
 ```text
-VBUS_USB_C / BQ_VBUS / BAT / SYS
-MCU_VSYS / 3V3_MCU / TPS610995_EN / GND
-BQ_SDA / BQ_SCL / BQ_TS / BQ_ILIM / BQ_PG
+VBUS_USB_C / BQ_VBUS
+BAT_RAW / BAT / SYS / GND
+BAT_ID1 / BAT_ID2 / BAT_NTC1 / BAT_NTC2 / BQ_TS
+MCU_VSYS / 3V3_MCU / TPS610995_EN
+BQ_SDA / BQ_SCL / BQ_ILIM / BQ_PG
 MAIN_PWR_GATE / MAIN_PWR_OUT
 MODEM_PWR_GATE / MODEM_PWR_OUT
 ANNEXE1_OUT / ANNEXE2_OUT
@@ -778,13 +1134,34 @@ L3 : puissance + signaux lents
 L4 : signaux + GND
 ```
 
-Priorité placement : BQ et boucles de puissance -> USB-C/protection -> MAIN/MODEM -> annexes -> logique/MCU.
+Priorité placement :
+
+```text
+1. BQ + ses boucles puissance
+2. J_BAT + BAT_ARM + chemin BAT
+3. USB-C + protections
+4. MAIN_PWR / MODEM_PWR
+5. annexes
+6. logique / RP2040
+```
+
+Contraintes batterie/connecteur :
+
+```text
+- accès mécanique au connecteur JK50 ;
+- aucune collision avec flex batterie ;
+- drawing Molex respecté ;
+- sérigraphie pin 1 et BAT+ clairement visible ;
+- BAT_RAW et GND espacés et protégés des outils lors du montage ;
+- réservation châssis batterie >=87 x 66 x 5.5 mm provisoire,
+  à confirmer sur pack réel.
+```
 
 ---
 
 # 15. BOM principale
 
-## Extended / spécialisés
+## 15.1 Extended / spécialisés
 
 ```text
 BQ25628ERYKR       C18221178
@@ -796,9 +1173,12 @@ JMTQ55P02A         C2890429 x2
 TYPE-C-31-M-12     C165948
 SRV05-4            C558418
 SMF5.0A            C193402
+Molex 5050060812   C779875     J_BAT batterie JK50
 ```
 
-## Basic principaux
+Le stock et le statut JLC du Molex doivent être revalidés juste avant commande.
+
+## 15.2 Basic principaux
 
 ```text
 AO3400A        C20917
@@ -821,36 +1201,63 @@ B5819W SL      C8598
 47 nF 50 V     C1622
 ```
 
-Les anciens Micro-Fit sont **supprimés de la BOM**.
+Les valeurs 5.1 kOhm / 30 kOhm liées à TS sont à confirmer pour la JK50 ; conserver les footprints même si la valeur finale change.
 
-Les quantités finales sont générées depuis le schéma V0.6.
+Les anciens Micro-Fit/JST de faisceau sont supprimés de la BOM.
+
+Les quantités finales sont générées depuis le schéma V0.7.
 
 ---
 
 # 16. Fonctions explicitement supprimées / interdites en V1
 
 ```text
-USB-C host / DRP / contrôleur CC     supprimé
-USB-PD / 9 V                         supprimé
-Q6A GPIO59 comme WAKE                remplacé par PWR_ON_KEY ; GPIO59 = HEARTBEAT
-CC1/CC2 sur deux ADC                 fusionnés sur GP26
-BQ_INT vers RP2040                   supprimé ; polling I2C
-Volume +/- vers RP2040               supprimé ; GPIO Q6A directs
-EC25 puissance principale par VBUS   supprimée ; BAT depuis MODEM_PWR
-USB EC25 à travers PCB Power         supprimé ; faisceau direct
-switch USB_VBUS EC25                 non monté
-EC25 RESET dédié                     supprimé ; option DNP GP28
-DISPLAY_PWR sur carte Power          absent
-codec audio Minimal EC25             supprimé
-jack utilisateur sur carte Power     absent
-mux audio analogique sur carte Power absent
-CMC USB2                             non monté
-connecteurs Micro-Fit/JST faisceaux  supprimés ; pads THT
+USB-C host / DRP / contrôleur CC        supprimé
+USB-PD / 9 V                            supprimé
+Q6A GPIO59 comme WAKE                   remplacé par PWR_ON_KEY ; GPIO59 = HEARTBEAT
+CC1/CC2 sur deux ADC                    fusionnés sur GP26
+BQ_INT vers RP2040                      supprimé ; polling I2C
+Volume +/- vers RP2040                  supprimé ; GPIO Q6A directs
+EC25 puissance principale par VBUS      supprimée ; BAT depuis MODEM_PWR
+USB EC25 à travers PCB Power            supprimé ; faisceau direct
+switch USB_VBUS EC25                    non monté
+EC25 RESET dédié                        supprimé ; option DNP GP28
+DISPLAY_PWR sur carte Power             absent
+codec audio Minimal EC25                supprimé
+jack utilisateur sur carte Power        absent
+mux audio analogique sur carte Power    absent
+CMC USB2                                non monté
+connecteurs Micro-Fit/JST faisceaux     supprimés ; pads THT
+2e BMS/PCM batterie sur PCB             supprimé
+fusible batterie obligatoire            supprimé de la baseline
+Schottky série anti-inversion BAT        supprimée
+P-MOS anti-inversion BAT                non monté en baseline
+charge JK50 à 4.40 V                    interdite en V1 ; VREG initial ~4.15 V
 ```
+
+Le connecteur Molex `J_BAT` est l'exception volontaire à la règle « pas de connecteurs de faisceau ».
 
 ---
 
 # 17. Gates BLOQUANTES avant fabrication
+
+## 17.1 Batterie / J_BAT
+
+```text
+[ ] Acheter une vraie Motorola JK50 Genuine Service Pack.
+[ ] Mesurer dimensions réelles + position/longueur flex avant gel mécanique châssis.
+[ ] Vérifier physiquement le mating JK50 <-> Molex 5050060812.
+[ ] Vérifier au multimètre sur le pack réel : pins 1/8 GND ; 4/5 VBAT ; 2 ID2 ; 3 ID1 ; 6 NTC1 ; 7 NTC2.
+[ ] Caractériser NTC1 et NTC2 à plusieurs températures raisonnables.
+[ ] Choisir NTC1 ou NTC2 vers BQ_TS et figer RT1/RT2 après caractérisation.
+[ ] Vérifier absence de consommation/fonction indésirable sur ID1/ID2 laissés en haute impédance.
+[ ] Vérifier footprint Molex avec drawing officiel + impression 1:1.
+[ ] Revalider stock JLC/LCSC C779875 avant commande.
+[ ] BAT_ARM : switch externe >=5 A, faible R de contact, pads et cuivre adaptés.
+[ ] JK50 pire cas système : pas de coupure pack / reset jusqu'au scénario de charge maximal réaliste.
+```
+
+## 17.2 Q6A / modem / système
 
 ```text
 [ ] Q6A J19 : R7 DNP ; R24 2 mOhm ; R190 100 k ; R191 10 k ; FB4 DNP ; R185..R189 confirmés.
@@ -861,20 +1268,19 @@ connecteurs Micro-Fit/JST faisceaux  supprimés ; pads THT
 [ ] GP6 réellement libre dans schéma final et exposé en réserve.
 [ ] EC25 VIO/TXD/RI mesurés sur carrier réel.
 [ ] EC25 BAT depuis SYS/MODEM_PWR toujours <4.30 V.
-[ ] pire cas Q6A charge CPU + EC25 TX LTE + annexes : aucun reset / chute rail.
+[ ] pire cas Q6A charge CPU + EC25 TX LTE + annexes : aucun reset / chute rail / déclenchement protection JK50.
 [ ] USB host EC25 suspend réellement avec VBUS présent.
 [ ] MODEM_PWR OFF + VBUS EC25 présent : pas de back-power problématique.
 [ ] USB-C branché + MAIN_PWR OFF : pas de back-power Q6A.
 [ ] hold MAIN/MODEM : reset MCU réel + Storage OFF + absence de back-power GPIO.
 [ ] TPS610995 : shutdown/isolation/courant stockage validés.
 [ ] SBS : pull-up Q6A mesurés avant peuplement 4.7 k DNP.
-[ ] pack/PCM/fils : courant admissible documenté avec marge.
-[ ] ANNEXE1/2 : confirmer que les charges aval acceptent SYS ou disposent de leur régulation.
+[ ] ANNEXE1/2 : charges aval acceptent SYS ou disposent de leur régulation.
 [ ] footprint RP2040-Tiny 1:1 + FPC accessible.
 [ ] layout BQ comparé à la recommandation TI.
 [ ] USB-C D+/D- recalculé sur stack-up JLC choisi.
 [ ] pads THT puissance dimensionnés et mécaniquement exploitables.
-[ ] analyse back-power complète Q6A/EC25/MCU/USB/SBS.
+[ ] analyse back-power complète Q6A/EC25/MCU/USB/SBS/batterie.
 [ ] ERC/DRC propres ; BOM/PnP/polarités/Gerbers revus.
 [ ] PCB <=70 x 25 mm sans collision TOP/BOTTOM.
 ```
@@ -885,6 +1291,22 @@ Les fonctions radio Android avancées (data complète, SMS, IMS/VoLTE, audio fin
 
 # 18. Tests après fabrication
 
+## 18.1 Batterie / armement
+
+```text
+[ ] BAT_ARM ouvert + JK50 branchée + USB absent : aucun rail alimenté depuis BAT.
+[ ] BAT_RAW correspond à la tension pack.
+[ ] BAT_ARM fermeture : BAT rejoint BAT_RAW sans chute anormale.
+[ ] BAT_ARM ouvert + USB-C présent : comportement attendu, SYS peut être alimenté depuis VBUS.
+[ ] J_BAT : aucun échauffement / faux contact aux pics réalistes.
+[ ] NTC1/NTC2 cohérents avec température pack.
+[ ] charge JK50 limitée à VREG programmé ~4.15 V.
+[ ] ICHG <=2 A et thermique pack/BQ acceptable.
+[ ] décharge forte réaliste : aucune coupure de protection pack.
+```
+
+## 18.2 Power / USB / MCU / modem
+
 ```text
 [ ] USB-C 5 V -> BQ -> SYS sans batterie
 [ ] batterie seule -> SYS
@@ -893,7 +1315,6 @@ Les fonctions radio Android avancées (data complète, SMS, IMS/VoLTE, audio fin
 [ ] polling BQ fiable sans INT
 [ ] CC_SENSE Default / 1.5 A / 3 A
 [ ] IINDPM / EN_EXTILIM corrects
-[ ] charge jusqu'à 2 A caractérisée thermiquement
 [ ] NTC / télémétrie BQ
 [ ] RP stable sur plage SYS
 [ ] Storage OFF courant résiduel
@@ -915,12 +1336,14 @@ Les fonctions radio Android avancées (data complète, SMS, IMS/VoLTE, audio fin
 [ ] EC25 PWRKEY / shutdown / recovery
 [ ] ANNEXE1 ampli ON/OFF propre sans pop/reboot système excessif
 [ ] ANNEXE2 ON/OFF et courant nominal validés
-[ ] consommations RUN / deep / storage-off
+[ ] consommations RUN / deep / storage-off / BAT_ARM ouvert
 ```
 
 ---
 
-# 19. Sources primaires de conception
+# 19. Sources primaires / documents de référence
+
+Conception électronique :
 
 - Texas Instruments — BQ25628E datasheet / NVDC power-path.
 - Texas Instruments — TPS61099x documentation.
@@ -930,28 +1353,66 @@ Les fonctions radio Android avancées (data complète, SMS, IMS/VoLTE, audio fin
 - Waveshare — RP2040-Tiny schematic/mécanique.
 - JLCPCB/LCSC — bibliothèque et règles de fabrication.
 
+Batterie JK50 / connecteur :
+
+- Motorola Level-3 / repair schematics des modèles utilisant JK50, pour J_BAT et pinout ID/NTC/VBAT/GND.
+- Molex — série 505006 / 505004, drawing officiel et mating.
+- Documentation transport/UN38.3 de la famille JK50 pour tension/capacité/courants de référence.
+- Mesures sur la **vraie JK50 Genuine Service Pack** obligatoires pour dimensions finales et caractérisation NTC.
+
 ---
 
-# 20. Gel proposé
+# 20. Gel V0.7
 
-Après validation utilisateur de ce document, les éléments suivants sont considérés **gelés pour le schéma/PCB V0.6** :
+Les choix suivants sont **gelés pour le schéma/PCB V0.7** :
 
 ```text
-batterie 1S / BQ25628E / SYS
-USB-C 5 V device-only
-MAIN_PWR et MODEM_PWR séparés avec hold RC 1 MOhm + 1 uF
-PWR_ON_KEY réel Q6A
-GPIO58 SLEEP_REQ
-GPIO59 HEARTBEAT
-SBS GP14/GP15
-BQ sans INT MCU ; polling I2C ; GP6 réserve
-GP28 réserve + RESET_N OD DNP
-VOL+ = Q6A GPIO31 / J20 pin 29
-VOL- = Q6A GPIO30 / J20 pin 32
-ANNEXE1 = ampli haut-parleur
-ANNEXE2 = SYS commuté générique annexes
-aucun connecteur faisceau : pastilles THT pour fils soudés
-USB Q6A <-> EC25 hors PCB Power
+BATTERIE
+- Motorola JK50 1S, cible Genuine Service Pack
+- ~4850 mAh rated / ~5000 mAh typical
+- ~3.80 V nominal ; pack HV capable ~4.40 V mais sous-chargé en V1
+- dimensions de travail ~86.1 x 65.0 x 4.8 mm ; pack réel à mesurer
+- connecteur PCB Molex 5050060812 / C779875
+- mate batterie Molex 5050040812
+- pinout : 1/8 GND ; 4/5 VBAT ; 2 ID2 ; 3 ID1 ; 6 NTC1 ; 7 NTC2
+- sélection NTC1/NTC2 configurable vers BQ_TS
+- BAT_ARM mécanique sur BAT+ avant BQ
+- pas de second BMS/PCM PCB
+- pas de fusible obligatoire baseline
+- pas d'anti-inversion série baseline
+
+CHARGE / SYS
+- BQ25628E / SYS NVDC
+- VREG initial ~4.15 V
+- ICHG <=2 A
+- USB-C 5 V device-only
+- CC1/CC2 fusionnés vers GP26 ADC
+
+Q6A / EC25
+- MAIN_PWR et MODEM_PWR séparés avec hold RC 1 MOhm + 1 uF
+- PWR_ON_KEY réel Q6A
+- GPIO58 SLEEP_REQ
+- GPIO59 HEARTBEAT
+- SBS GP14/GP15
+- USB Q6A <-> EC25 hors PCB Power
+- EC25 UART/DTR/RI/PWRKEY conservés
+
+MCU / GPIO
+- BQ sans INT MCU ; polling I2C
+- GP6 réserve
+- GP28 réserve + RESET_N EC25 open-drain DNP
+- VOL+ = Q6A GPIO31 / J20 pin 29
+- VOL- = Q6A GPIO30 / J20 pin 32
+
+ANNEXES / MÉCANIQUE
+- ANNEXE1 = ampli haut-parleur
+- ANNEXE2 = SYS commuté générique annexes
+- J_BAT est le seul connecteur interne dédié sur la carte
+- toutes les autres liaisons internes = pastilles THT pour fils soudés
+- PCB 4 couches <=70 x 25 mm
+- RP2040-Tiny BOTTOM
 ```
 
-Toute modification ultérieure d'un de ces choix doit être traitée comme une révision d'architecture ou une ECO explicite, pas comme une correction silencieuse du schéma.
+Les éléments encore à **caractériser** (NTC JK50, tenue pire cas 4.85 A, dimensions réelles du pack, back-power, hold RC réel, etc.) sont des **gates de validation physique**, pas des choix d'architecture ouverts.
+
+Toute modification ultérieure d'un élément gelé doit être traitée comme une révision d'architecture ou une ECO explicite, jamais comme une correction silencieuse du schéma.
