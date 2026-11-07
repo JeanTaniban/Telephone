@@ -1,17 +1,19 @@
 # Maker Phone Q6A — références courantes
 
-**Dernière mise à jour : 2026-10-05**
+**Dernière mise à jour : 2026-11-07 (ECO de câblage Q6A J20 ; Power V0.9 inchangé)**
 
 Pour reprendre le projet sans réintroduire une ancienne architecture, lire dans cet ordre :
 
 ```text
-1. CDC_CARTE_POWER_MCU_V1_2026-10-05_CURRENT.md
-2. MISSION_CDC_POWER_MCU_V0_9_BOM_2026-10-05.md
-3. PROJECT_STATE_MAKER_PHONE_Q6A_2026-10-03_CURRENT.md
-4. MISSION_MCU_SUPERVISION_V2_2026-10-03.md
-5. ETAT_INTEGRATION_EC25_EUXGA_Q6A_2026-09-25.md
-6. documents spécialisés J19 / STR / écran
-7. CDC/DELTA/MIGRATION Power antérieurs = historique/audit
+1. Q6A_J20_GPIO_DAMAGE_PINOUT_2026-11-07.md (si prototype J20 endommagé)
+2. CDC_CARTE_POWER_MCU_V1_2026-10-05_CURRENT.md
+3. MISSION_CDC_POWER_MCU_V0_9_BOM_2026-10-05.md
+4. PROJECT_STATE_MAKER_PHONE_Q6A_2026-10-03_CURRENT.md
+5. MISSION_MCU_SUPERVISION_V2_2026-10-03.md
+6. ETAT_INTEGRATION_EC25_EUXGA_Q6A_2026-09-25.md
+7. MISSION_Q6A_J20_GPIO_DAMAGE_2026-11-07.md (CDC mission)
+8. documents spécialisés J19 / STR / écran
+9. CDC/DELTA/MIGRATION Power antérieurs = historique/audit
 ```
 
 Le `CDC_CARTE_POWER_MCU_V1_2026-10-05_CURRENT.md` est désormais la **référence électrique normative courante V0.9**. Il intègre directement la BOM consolidée et supersède la V0.8/delta V0.8 dès qu'ils sont contradictoires.
@@ -40,7 +42,11 @@ GP28                 = option NTC2_ADC / RESET_N open-drain DNP ; usages exclusi
 GP29                 = MODEM_PWR_EN
 MAIN/MODEM           = OFF par défaut + maintien RC ~1 s
 VOL+                 = Q6A J20 pin 29 / GPIO31 direct
-VOL-                 = Q6A J20 pin 32 / GPIO30 direct
+TP_SPI12             = J20 19 MOSI / 21 MISO / 23 SCLK / 24 CS0 (non testé)
+TP_INT / TP_RESET    = J20 pin 16 GPIO26 / pin 18 GPIO27 (propositions)
+J20 dommage déclaré  = 13, 17, 26, 28, 32, 38, 40 (mesures non faites)
+J20 référence 3V3    = pin 1 ; pin 17 à ne pas utiliser sans reprise testée
+VOL-                 = Q6A J20 pin 22 / GPIO57 CANDIDAT (J20.32 cassé déclaré, test Android requis)
 ANNEXE1              = ampli HP ; AO3401A via AO3400A, OFF par défaut, sans hold
 ANNEXE2              = SYS commuté générique ; AO3401A via AO3400A, OFF par défaut, sans hold
 SBS                  = GP14/GP15 vers I2C6 Q6A ; pull-up Q6A_3V3 DNP si nécessaires
@@ -48,6 +54,9 @@ BOM                   = section 14 du CDC V0.9 ; 12 références Extended unique
 ```
 
 Points explicitement à mesurer avant validation physique :
+
+- **J20 :** court-circuits/continuités, SPI12 et tactile, boutons Volume+/Volume−, pinmux Android ; voir `Q6A_J20_GPIO_DAMAGE_PINOUT_2026-11-07.md`.
+
 
 ```text
 JK50 réelle : dimensions, flex, mating, pinout

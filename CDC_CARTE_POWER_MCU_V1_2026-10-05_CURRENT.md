@@ -10,6 +10,8 @@ Ce document est la **référence électrique normative courante** de la carte Po
 
 La modification principale V0.9 est l'abandon de l'alimentation EC25 BAT directement depuis SYS : le modem reçoit désormais un rail régulé d'environ **3.825 V** produit par un **RT6154AGQW**. La tension haute de la JK50 n'est donc plus appliquée directement au BAT du EC25.
 
+**ECO documentaire du 2026-11-07 (J20 endommagé) :** l'allocation de certains signaux de l'interface 40 broches est modifiée pour le prototype concerné, **sans changement électrique de la carte Power/MCU V0.9**. Voir [inventaire J20 et validations ouvertes](Q6A_J20_GPIO_DAMAGE_PINOUT_2026-11-07.md). Les nouvelles affectations sont **proposées, non testées**.
+
 ---
 
 # 0. Architecture normative
@@ -372,7 +374,7 @@ Q6A J20 pin 36 / GPIO59 -> HEARTBEAT_STATE -> GP27
 Q6A J20 pin 37 / GPIO58 <- SHUTDOWN_REQ <- GP9
 Q6A J20 pin 3 / GPIO24 / I2C6_SDA <-> GP14 SBS_SDA
 Q6A J20 pin 5 / GPIO25 / I2C6_SCL <-> GP15 SBS_SCL
-Q6A J20 pin 1 ou 17 / 3V3 -> Q6A_3V3_REF
+Q6A J20 pin 1 / 3V3 -> Q6A_3V3_REF (J20.17 endommagé déclaré ; mesure requise)
 Q6A PWR_ON_KEY <- S8050 <- GP8
 MAIN_PWR_OUT -> Q6A J19+
 GND -> Q6A J19-
@@ -432,10 +434,12 @@ Ne jamais tirer SBS vers 3V3_MCU.
 
 # 7. Boutons utilisateur
 
+> **ECO J20 2026-11-07 :** la réaffectation Volume− vers J20.22/GPIO57 concerne le prototype Q6A dont J20.32 est endommagée. Vérifier le GPIO sous Android 15 (pinctrl/gpio-keys, KEY_VOLUMEDOWN) avant validation. Aucune reprise à J20.32 n'est exigée à ce stade. Source : [diagnostic et plan de tests J20](Q6A_J20_GPIO_DAMAGE_PINOUT_2026-11-07.md).
+
 ```text
 POWER : bouton NO vers GND -> GP7 ; pull-up 10 kOhm vers 3V3_MCU
 VOL+  : Q6A J20 pin 29 / GPIO31 direct
-VOL-  : Q6A J20 pin 32 / GPIO30 direct
+VOL-  : Q6A J20 pin 22 / GPIO57 direct (ECO J20 2026-11-07, proposé NON TESTÉ ; remplace pin 32 / GPIO30 endommagé)
 ```
 
 Appui Power court : MCU transmet un pulse PWR_ON_KEY. Android reste maître de l'écran, des wakelocks et du suspend. Appui long : SHUTDOWN_REQ d'abord, long PWR_ON_KEY puis hard cut seulement en dernier recours.
@@ -872,6 +876,11 @@ Schottky/P-MOS anti-inversion BAT      absent baseline
 ## Q6A / contrôle
 
 ```text
+[ ] J20 endommagé : absence de court-circuit et contrôle continuité des contacts utiles
+[ ] J20.1 3V3 stable ; J20.17 non utilisé ; pas de back-power
+[ ] TP_INT J20.16 / TP_RESET J20.18 validés sous Android et à la dalle réelle
+[ ] SPI12 J20.19/21/23/24 avec CS0 fonctionnel et niveaux tactile adaptés
+[ ] Volume+ J20.29 / Volume- J20.22 : gpio-keys, getevent et essais boutons
 [ ] J19 mods et essais 4.2/3.8/3.4/3.0 V
 [ ] PWR_ON_KEY cold boot/appui court/wake/long
 [ ] SHUTDOWN_REQ GPIO58 + daemon Android
@@ -970,7 +979,7 @@ VALIDÉ / NORMATIF PCB-SCHÉMA
 - GP27 = HEARTBEAT_STATE
 - GP28 pré-câblé NTC2_ADC DNP + RESET_N OD DNP, options exclusives
 - NTC1/NTC2 sélectionnables vers BQ_TS par straps
-- VOL+/VOL- directs Q6A
+- VOL+ J20.29/GPIO31 direct ; VOL- J20.22/GPIO57 candidat ECO (J20.32 endommagé, validation Android requise)
 - BOM V0.9 ci-dessus = baseline d'implémentation
 
 OUVERT / À CARACTÉRISER SANS MODIFIER L'ARCHITECTURE PCB
